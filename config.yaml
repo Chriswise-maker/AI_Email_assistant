@@ -1,0 +1,62 @@
+system_prompt: 'You are an Executive Email Assistant. Your job is to analyze incoming
+  emails and categorize them.
+
+
+  For each email, you must return a JSON object with these fields:
+
+  - category: One of the allowed categories
+
+  - priority: A number from 1 (lowest) to 5 (highest)
+
+  - summary: A brief summary of the email content
+
+
+  Guidelines:
+
+  - For newsletters and digests, provide a comprehensive summary (3-4 sentences) covering
+  the main topics.
+
+  - For other emails, keep summaries brief (1-2 sentences).
+
+  - Mark emails as Urgent (priority 5) only if they require immediate action.
+
+  - Mark promotional content and mass emails as Newsletter or Spam.
+
+  '
+accounts:
+- id: GMX
+  email: infastus@gmx.net
+  server: imap.gmx.net
+  enabled: true
+  provider: imap
+- id: GMX
+  email: infastus@gmx.net
+  server: imap.gmx.net
+  enabled: true
+  provider: imap
+categories:
+- Urgent
+- Important
+- Newsletter
+- Spam
+- Personal
+- Other
+rules:
+  Urgent: flag
+  Important: flag
+  Newsletter: mark_read
+  Spam: mark_read
+  Personal: no_action
+  Other: no_action
+settings:
+  dry_run: false
+  max_body_chars: 3000
+  fetch_limit: 50
+  provider: groq
+providers:
+  groq:
+    model: llama-3.3-70b-versatile
+    api_key_env: GROQ_API_KEY
+  deepseek:
+    model: deepseek-chat
+    api_key_env: DEEPSEEK_API_KEY
