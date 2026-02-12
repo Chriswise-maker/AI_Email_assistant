@@ -17,7 +17,7 @@ except ImportError:
     def process_emails(dry_run=False):
         return {"status": "error", "message": "Backend module missing"}
 
-from utils import load_config, save_config, set_account_password
+from utils import load_config, save_config, set_account_password, set_env_variable, get_env_value
 
 # Page configuration
 st.set_page_config(
@@ -205,20 +205,82 @@ with tab_settings:
     
     # Provider Selection
     curr_provider = settings.get("provider", "groq")
-    new_provider = st.selectbox(
-        "AI Provider", 
-        ["groq", "deepseek"], 
-        index=0 if curr_provider == "groq" else 1
-    )
     
-    if new_provider != curr_provider:
-        # Update provider in config
-        config.setdefault("settings", {})["provider"] = new_provider
-        save_config(config)
-        st.rerun()
+    # Dynamic list of providers
+    PROVIDERS = ["groq", "deepseek", "gemini", "claude"]
+    
+    try:
+        current_index = PROVIDERS.index(curr_provider)
+    except ValueError:
+        current_index = 0
         
-    # Provider specific settings link
-    st.caption(f"Configured to use **{new_provider.upper()}** models.")
+    s_col1, s_col2 = st.columns([1, 2])
+    
+    with s_col1:
+        new_provider = st.radio("Select AI Brain", PROVIDERS, index=current_index, format_func=lambda x: x.upper())
+        
+    with s_col2:
+        st.info(f"Configuring **{new_provider.upper()}**")
+        
+        # Get current config for this provider
+        if "providers" not in config:
+            config["providers"] = {}
+            
+        p_config = config.get("providers", {}).get(new_provider, {})
+        
+        # 1. Model Name
+        curr_model = p_config.get("model", "")
+        new_model = st.text_input("Model ID", value=curr_model, help="e.g. gemini-3-flash-preview")
+        
+        # 2. API Key
+        env_var_name = p_config.get("api_key_env", f"{new_provider.upper()}_API_KEY")
+        # Check if key is set
+        is_set = get_env_value(env_var_name) is not None
+        placeholder = "********" if is_set else ""
+        
+        new_key = st.text_input(
+            f"API Key ({env_var_name})", 
+            type="password", 
+            placeholder=placeholder,
+            help="Leave empty to keep existing key"
+        )
+        
+        # 3. Extra Params (Thinking Level) for Gemini/Claude
+        new_thinking = None
+        if new_provider in ["gemini", "claude"]:
+            curr_thinking = p_config.get("thinking_level", "low" if new_provider == "gemini" else "medium")
+            new_thinking = st.select_slider(
+                "Thinking Level", 
+                options=["low", "medium", "high"], 
+                value=curr_thinking,
+                help="Controls reasoning depth (Claude 'effort' / Gemini 'thinking_level')"
+            )
+            
+        if st.button("💾 Save AI Settings"):
+            # Update Provider
+            config.setdefault("settings", {})["provider"] = new_provider
+            
+            # Update Model
+            if new_provider not in config["providers"]:
+                config["providers"][new_provider] = {}
+                
+            config["providers"][new_provider]["model"] = new_model
+            config["providers"][new_provider]["api_key_env"] = env_var_name
+            
+            if new_thinking:
+                config["providers"][new_provider]["thinking_level"] = new_thinking
+            
+            # Update Config File
+            save_config(config)
+            
+            # Update API Key if provided
+            if new_key:
+                set_env_variable(env_var_name, new_key)
+                st.success(f"API Key saved to .env as {env_var_name}")
+            
+            st.success("Configuration updated!")
+            time.sleep(1)
+            st.rerun()
 
     st.divider()
 

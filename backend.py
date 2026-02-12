@@ -51,7 +51,7 @@ def process_emails(dry_run: bool = False) -> dict:
         }
 
     try:
-        llm_provider = get_provider(provider_name, api_key)
+        llm_provider = get_provider(provider_name, api_key, config)
     except ValueError as e:
         return {"status": "error", "message": str(e)}
 
@@ -76,12 +76,12 @@ def process_emails(dry_run: bool = False) -> dict:
         
         try:
             # Persistent connection per account
-            with MailBox(server).login(email_addr, password) as mailbox:
-                # Fetch UNSEEN messages
-                # We limit per account to avoid gigantic batches
-                emails = list(mailbox.fetch(AND(seen=False), limit=fetch_limit, mark_seen=False))
+            with MailBox(server).login(email_addr, password, initial_folder='INBOX') as mailbox:
+                # Fetch ALL UNSEEN messages from INBOX
+                # mark_seen=True so processed emails won't be re-read next run
+                emails = list(mailbox.fetch(AND(seen=False), mark_seen=True))
                 
-                print(f"  Found {len(emails)} unseen emails.")
+                print(f"  Found {len(emails)} unseen emails in INBOX.")
                 
                 for email in emails:
                     try:
@@ -204,7 +204,7 @@ def apply_rules(mailbox: MailBox, uid: str, action_name: str, dry_run: bool = Fa
 
 def append_to_briefing(summaries: List[dict]) -> None:
     """
-    Append processed email summaries to daily_briefing.md
+    Prepend processed email summaries to daily_briefing.md (newest first)
     Group by Category first, then sort by Priority (desc).
     """
     briefing_path = Path("daily_briefing.md")
@@ -248,8 +248,15 @@ def append_to_briefing(summaries: List[dict]) -> None:
     markdown += "\n---\n"
     
     try:
-        # Append mode 'a'
-        with open(briefing_path, "a", encoding="utf-8") as f:
-            f.write(markdown)
+        # Prepend by reading existing content first
+        existing_content = ""
+        if briefing_path.exists():
+            with open(briefing_path, "r", encoding="utf-8") as f:
+                existing_content = f.read()
+        
+        # Write new content followed by old content
+        with open(briefing_path, "w", encoding="utf-8") as f:
+            f.write(markdown + existing_content)
     except Exception as e:
         print(f"Error writing to daily_briefing.md: {e}")
+

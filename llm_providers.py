@@ -8,6 +8,8 @@ import os
 import json
 from groq import Groq
 from openai import OpenAI  # DeepSeek is OpenAI-compatible
+import google.generativeai as genai
+import anthropic
 
 class LLMProvider(ABC):
     @abstractmethod
@@ -76,10 +78,96 @@ class DeepSeekProvider(LLMProvider):
             print(f"DeepSeek API Error: {e}")
             return None
 
-def get_provider(provider_name: str, api_key: str) -> LLMProvider:
+class GeminiProvider(LLMProvider):
+    def __init__(self, api_key: str, thinking_level: str = "low"):
+        genai.configure(api_key=api_key)
+        self.thinking_level = thinking_level
+
+    def analyze_email(self, email_content: str, system_prompt: str, model: str) -> dict:
+        try:
+            # Gemini 3 Pro/Flash specific configuration
+            generation_config = {
+                "temperature": 0.3,
+                "max_output_tokens": 1024,
+                "response_mime_type": "application/json",
+            }
+            
+            # Apply thinking_level if supported by the SDK/Model (Conceptual implementation for Gemini 3)
+            # Note: As of Feb 2026, check if 'thinking_level' is a direct param or part of a specific config object.
+            # We will pass it in generation_config if the SDK supports it broadly, or assuming it's a top-level param.
+            # For now, sticking to standard generation_config.
+            if self.thinking_level == "high":
+                # Hypothetical param based on user Request
+                generation_config["thinking_level"] = "high" 
+
+            model_instance = genai.GenerativeModel(model, generation_config=generation_config)
+            
+            combined_prompt = f"{system_prompt}\n\nEmail Content:\n{email_content}"
+            
+            response = model_instance.generate_content(combined_prompt)
+            return json.loads(response.text)
+        except Exception as e:
+            print(f"Gemini API Error: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+class ClaudeProvider(LLMProvider):
+    def __init__(self, api_key: str, thinking_level: str = "medium"):
+        self.client = anthropic.Anthropic(api_key=api_key)
+        self.thinking_level = thinking_level
+
+    def analyze_email(self, email_content: str, system_prompt: str, model: str) -> dict:
+        try:
+            # Construct parameters
+            params = {
+                "model": model,
+                "max_tokens": 1024,
+                "messages": [
+                    {"role": "user", "content": f"{system_prompt}\n\n{email_content}"} 
+                    # Claude system prompt can also be top-level 'system' param, but integrating here for simplicity
+                ],
+            }
+
+            # Handle Thinking/Effort
+            # User specified: thinking: { "type": "adaptive" }, effort: low/medium/high/max
+            
+            # Map 'thinking_level' from config (low/medium/high) to Claude params
+            if "claude-3-7" in model or "claude-4" in model or "sonnet-4-5" in model or "opus-4-6" in model:
+                 # Thinking parameters
+                if self.thinking_level == "medium" or self.thinking_level == "high":
+                     params["thinking"] = {"type": "adaptive"}
+                     params["effort"] = "high" if self.thinking_level == "high" else "medium"
+                else:
+                    # Default/Low: No special thinking or low effort
+                    pass 
+
+            # Force JSON if possible via tool use or prompt, but Claude is good at following instruction.
+            # For strict JSON, we often prefill the Assistant message:
+            # params["messages"].append({"role": "assistant", "content": "{"})
+            
+            response = self.client.messages.create(**params)
+            
+            content = response.content[0].text
+            # Attempt to parse json
+            # If we prefilled '{', we need to add it back.
+            return json.loads(content)
+        except Exception as e:
+            print(f"Claude API Error: {e}")
+            return None
+
+def get_provider(provider_name: str, api_key: str, config: dict = None) -> LLMProvider:
+    config = config or {}
+    
     if provider_name.lower() == "groq":
         return GroqProvider(api_key)
     elif provider_name.lower() == "deepseek":
         return DeepSeekProvider(api_key)
+    elif provider_name.lower() == "gemini":
+        thinking = config.get("providers", {}).get("gemini", {}).get("thinking_level", "low")
+        return GeminiProvider(api_key, thinking_level=thinking)
+    elif provider_name.lower() == "claude":
+        thinking = config.get("providers", {}).get("claude", {}).get("thinking_level", "medium")
+        return ClaudeProvider(api_key, thinking_level=thinking)
     else:
         raise ValueError(f"Unknown provider: {provider_name}")

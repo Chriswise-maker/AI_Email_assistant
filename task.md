@@ -21,3 +21,16 @@ All planned phases are implemented and verified.
 - **Phase 2**: Configuration System (Done)
 - **Phase 3**: Modular Backend & UI (Done)
 - **Phase 4**: Optimization & Polish (Done)
+
+## Phase 5: Multi-Provider Integration (Complete)
+- [x] Research & Verify latest Model IDs (Gemini & Claude)
+- [x] Update `llm_providers.py` to support `google-generativeai` and `anthropic`
+- [x] Update `config.yaml` with new provider schemas
+- [x] Update `requirements.txt` with new dependencies
+- [x] Verify integration with `test_connections.py`
+- [x] Integrate new providers into UI (`app.py`)
+    - [x] Add provider selector for Gemini/Claude
+    - [x] Add Model ID configuration input
+    - [x] Add API Key input (saved to `.env`)
+    - [x] Add "Thinking Level" configuration
+
