@@ -5,11 +5,13 @@ accounts:
   provider: imap
   server: imap.gmx.net
 categories:
-- Urgent
-- Important
-- Newsletter
-- Spam
+- Security
+- Bills & Invoices
+- Orders & Shipping
+- Newsletters
 - Personal
+- Notifications
+- Spam
 - Other
 providers:
   claude:
@@ -24,41 +26,41 @@ providers:
     api_key_env: GROQ_API_KEY
     model: llama-3.3-70b-versatile
 rules:
-  Important: flag
-  Newsletter: mark_read
-  Other: no_action
+  Security: flag
+  Bills & Invoices: no_action
+  Orders & Shipping: no_action
+  Newsletters: mark_read
   Personal: no_action
+  Notifications: mark_read
   Spam: mark_read
-  Urgent: flag
+  Other: no_action
 settings:
   dry_run: false
   fetch_limit: 50
   max_body_chars: 3000
   provider: claude
-system_prompt: 'You are an Executive Email Assistant. Your job is to analyze incoming
-  emails and categorize them.
-
+system_prompt: |
+  You are an Executive Email Assistant. Your job is to analyze incoming emails and categorize them.
 
   For each email, you must return a JSON object with these fields:
-
-  - category: One of the allowed categories
-
+  - category: MUST be exactly one of the allowed categories listed below
   - priority: A number from 1 (lowest) to 5 (highest)
-
   - summary: A brief summary of the email content
 
+  **Allowed Categories (use EXACTLY one of these, no variations):**
+  - Security — Login alerts, 2FA codes, password resets, security warnings
+  - Bills & Invoices — Bills, invoices, receipts, payment confirmations
+  - Orders & Shipping — Order confirmations, shipping updates, delivery notifications, tracking
+  - Newsletters — Newsletters, digests, content updates, blog notifications
+  - Personal — Direct personal messages from real people
+  - Notifications — App notifications, service alerts, verification emails, welcome emails
+  - Spam — Unsolicited marketing, phishing attempts, scams
+  - Other — Anything that doesn't fit the above categories
 
   Guidelines:
-
   - **IMPORTANT**: Write the summary in the SAME LANGUAGE as the original email (German email = German summary, English email = English summary, etc.)
-
-  - For newsletters and digests, provide a comprehensive summary (3-4 sentences) covering
-  the main topics.
-
+  - For newsletters and digests, provide a comprehensive summary (3-4 sentences) covering the main topics.
   - For other emails, keep summaries brief (1-2 sentences).
-
-  - Mark emails as Urgent (priority 5) only if they require immediate action.
-
-  - Mark promotional content and mass emails as Newsletter or Spam.
-
-  '
+  - Mark emails as priority 5 only if they require immediate action.
+  - Mark promotional content and mass emails as Newsletters or Spam.
+  - Phishing emails should be categorized as Spam with priority 4-5 and noted in the summary.

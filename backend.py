@@ -22,6 +22,68 @@ from imap_tools import MailMessage
 from utils import load_config, get_account_password, get_env_value
 from llm_providers import get_provider
 
+# Canonical categories — must match config.yaml and system prompt
+CANONICAL_CATEGORIES = [
+    "Security",
+    "Bills & Invoices",
+    "Orders & Shipping",
+    "Newsletters",
+    "Personal",
+    "Notifications",
+    "Spam",
+    "Other",
+]
+
+# Fuzzy mapping for common LLM variations
+_CATEGORY_ALIASES = {
+    "bill": "Bills & Invoices",
+    "bills": "Bills & Invoices",
+    "invoice": "Bills & Invoices",
+    "bill/invoice": "Bills & Invoices",
+    "receipt": "Bills & Invoices",
+    "order confirmation": "Orders & Shipping",
+    "order": "Orders & Shipping",
+    "shipping": "Orders & Shipping",
+    "shipping update": "Orders & Shipping",
+    "delivery": "Orders & Shipping",
+    "newsletter": "Newsletters",
+    "security alert": "Security",
+    "security update": "Security",
+    "security warning": "Security",
+    "notification": "Notifications",
+    "verification": "Notifications",
+    "welcome email": "Notifications",
+    "welcome/confirmation email": "Notifications",
+    "confirmation email": "Notifications",
+    "transactional": "Orders & Shipping",
+    "administrative": "Notifications",
+    "utility": "Bills & Invoices",
+    "urgent": "Security",
+    "important": "Personal",
+    "spam": "Spam",
+    "personal": "Personal",
+    "other": "Other",
+}
+
+def normalize_category(raw_category: str) -> str:
+    """Map LLM-returned category to a canonical one."""
+    if not raw_category:
+        return "Other"
+    # Exact match first
+    for canon in CANONICAL_CATEGORIES:
+        if raw_category.strip().lower() == canon.lower():
+            return canon
+    # Alias lookup
+    alias = _CATEGORY_ALIASES.get(raw_category.strip().lower())
+    if alias:
+        return alias
+    # Substring match as last resort
+    lower = raw_category.strip().lower()
+    for canon in CANONICAL_CATEGORIES:
+        if canon.lower() in lower or lower in canon.lower():
+            return canon
+    return "Other"
+
 def process_emails(dry_run: bool = False) -> dict:
     """
     Main entry point for email processing.
@@ -97,7 +159,7 @@ def process_emails(dry_run: bool = False) -> dict:
                         )
                         
                         if analysis:
-                            category = analysis.get("category", "Other")
+                            category = normalize_category(analysis.get("category", "Other"))
                             action_name = config.get("rules", {}).get(category, "no_action")
                             
                             # Safely get priority as int
@@ -242,7 +304,9 @@ def append_to_briefing(summaries: List[dict]) -> None:
         sender = item.get('sender', 'Unknown')
         summary = item.get('summary', 'No summary provided')
         
-        markdown += f"- {icon} **{subject}** (from {sender})\n"
+        account = item.get('account', '')
+        acct_tag = f" [{account}]" if account else ""
+        markdown += f"- {icon} **{subject}** (from {sender}){acct_tag}\n"
         markdown += f"  > {summary}\n"
     
     markdown += "\n---\n"
