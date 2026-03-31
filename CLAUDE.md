@@ -85,11 +85,5 @@ streamlit run app.py
 ```
 
 ## Known Bugs (see ROADMAP.md for fix plan)
-- `mark_seen=True` at fetch time means failed emails get marked as read and lost
-- Claude provider ignores `system` parameter, stuffs system prompt into user message
-- Claude model detection for thinking/effort uses hardcoded string matching that misses current models
-- `fetch_limit` from config is read but never enforced
-- `max_body_chars` from config is not passed to `clean_email_body()`
-- `yaml.safe_dump` destroys multiline block scalars (system_prompt formatting)
-- Debug viewer tab was removed from UI but debug logging code references remain
+- Gemini `thinking_level` config is hypothetical — not verified against current SDK
 - Gemini `thinking_level` config is hypothetical — not verified against current SDK

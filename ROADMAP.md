@@ -12,54 +12,54 @@
 
 ### Critical (data loss / broken functionality)
 
-- [ ] **Fix mark_seen timing in backend.py**
+- [x] **Fix mark_seen timing in backend.py**
   - **Bug:** `mark_seen=True` at fetch time (line 144) marks emails as read before LLM analysis. If analysis fails or app crashes, emails are silently lost from the unseen queue.
   - **Fix:** Change to `mark_seen=False`. After successful analysis + rule application, explicitly call `mailbox.flag(uid, '\\Seen', True)`. On failure, email stays unread for next run.
   - **Files:** `backend.py` (lines 144, 173, ~252)
 
-- [ ] **Fix Claude system prompt handling in llm_providers.py**
+- [x] **Fix Claude system prompt handling in llm_providers.py**
   - **Bug:** System prompt is concatenated into the user message (line 127) instead of using Claude's `system` parameter. Weakens instruction-following.
   - **Fix:** Move system prompt to `system` parameter in `params`. Same fix for Gemini — use `system_instruction` parameter on `GenerativeModel`.
   - **Files:** `llm_providers.py` (ClaudeProvider lines 122-130, GeminiProvider lines 103-107)
 
-- [ ] **Fix Claude model detection for thinking/effort**
+- [x] **Fix Claude model detection for thinking/effort**
   - **Bug:** Hardcoded string matching (line 136) doesn't match `claude-sonnet-4-6` (the model actually in config). Thinking mode is never activated.
   - **Fix:** Remove model-gating entirely. If `thinking_level` is medium/high in config, always pass thinking params. Let the API reject if unsupported. Or use a simple version check (model contains `claude` and not `claude-3-5` or older).
   - **Files:** `llm_providers.py` (lines 136-143)
 
-- [ ] **Update stale model name in config.yaml**
+- [x] **Update stale model name in config.yaml**
   - **Bug:** `claude-sonnet-4-5` should be `claude-sonnet-4-6`.
   - **Files:** `config.yaml` (line 19)
 
 ### Important (functionality not working as configured)
 
-- [ ] **Enforce fetch_limit**
+- [x] **Enforce fetch_limit**
   - **Bug:** `fetch_limit` is read from config (line 99) but never applied. All unseen emails are fetched.
   - **Fix:** Slice the email list: `emails = emails[:fetch_limit]`
   - **Files:** `backend.py` (after line 144)
 
-- [ ] **Pass max_body_chars from config to clean_email_body()**
+- [x] **Pass max_body_chars from config to clean_email_body()**
   - **Bug:** Hardcoded 3000 char limit ignores config value.
   - **Fix:** Read `settings.get("max_body_chars", 3000)` and pass to `clean_email_body()`.
   - **Files:** `backend.py` (lines 99, 151)
 
-- [ ] **Fix YAML save destroying system_prompt formatting**
+- [x] **Fix YAML save destroying system_prompt formatting**
   - **Bug:** `yaml.safe_dump` collapses the multiline `|` block scalar into a single line.
   - **Fix:** Use `default_flow_style=False` and `default_style='|'` for string fields, or use `ruamel.yaml` which preserves formatting. Simplest: use `yaml.dump` with a custom representer for long strings.
   - **Files:** `utils.py` (line 22), possibly `requirements.txt`
 
-- [ ] **Make file paths absolute**
+- [x] **Make file paths absolute**
   - **Bug:** `daily_briefing.md`, `debug_logs.json`, `config.yaml`, `.env` all use relative paths. Breaks if CWD differs.
   - **Fix:** Define `PROJECT_ROOT = Path(__file__).parent` in `utils.py`. Derive all paths from it.
   - **Files:** `utils.py`, `backend.py`, `app.py`
 
 ### Minor
 
-- [ ] **Add basic retry logic for LLM failures**
+- [x] **Add basic retry logic for LLM failures**
   - Single retry with 2s delay on provider `None` return. Prevents transient API errors from skipping emails.
   - **Files:** `backend.py` (around line 154)
 
-- [ ] **Restore debug viewer tab in UI**
+- [x] **Restore debug viewer tab in UI**
   - Tab was removed during UI redesign. Add it back as the 4th tab.
   - Wire up `debug_logs.json` reading (the logging code may also need restoration in `backend.py`).
   - **Files:** `app.py`, `backend.py`

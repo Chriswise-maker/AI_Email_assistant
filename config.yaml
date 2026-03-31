@@ -16,7 +16,7 @@ categories:
 providers:
   claude:
     api_key_env: ANTHROPIC_API_KEY
-    model: claude-sonnet-4-5
+    model: claude-sonnet-4-6
     thinking_level: medium
   gemini:
     api_key_env: GEMINI_API_KEY

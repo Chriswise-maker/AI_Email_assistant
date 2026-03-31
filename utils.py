@@ -3,10 +3,24 @@ import yaml
 from pathlib import Path
 from dotenv import load_dotenv, set_key
 
-load_dotenv()
+load_dotenv(Path(__file__).parent.resolve() / ".env")
 
-CONFIG_PATH = "config.yaml"
-ENV_PATH = ".env"
+PROJECT_ROOT = Path(__file__).parent.resolve()
+
+CONFIG_PATH = PROJECT_ROOT / "config.yaml"
+ENV_PATH = PROJECT_ROOT / ".env"
+
+
+# Custom YAML representer: use block scalar (|) for multiline strings
+def _str_representer(dumper, data):
+    if "\n" in data:
+        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+
+
+_yaml_dumper = yaml.SafeDumper
+_yaml_dumper.add_representer(str, _str_representer)
+
 
 def load_config(path=CONFIG_PATH):
     try:
@@ -19,7 +33,7 @@ def load_config(path=CONFIG_PATH):
 def save_config(config, path=CONFIG_PATH):
     try:
         with open(path, "w") as f:
-            yaml.safe_dump(config, f)
+            yaml.dump(config, f, Dumper=_yaml_dumper, default_flow_style=False, sort_keys=False)
     except Exception as e:
         print(f"Error saving config: {e}")
 

@@ -100,11 +100,13 @@ class GeminiProvider(LLMProvider):
                 # Hypothetical param based on user Request
                 generation_config["thinking_level"] = "high" 
 
-            model_instance = genai.GenerativeModel(model, generation_config=generation_config)
-            
-            combined_prompt = f"{system_prompt}\n\nEmail Content:\n{email_content}"
-            
-            response = model_instance.generate_content(combined_prompt)
+            model_instance = genai.GenerativeModel(
+                model,
+                generation_config=generation_config,
+                system_instruction=system_prompt,
+            )
+
+            response = model_instance.generate_content(email_content)
             return json.loads(response.text)
         except Exception as e:
             print(f"Gemini API Error: {e}")
@@ -119,38 +121,32 @@ class ClaudeProvider(LLMProvider):
 
     def analyze_email(self, email_content: str, system_prompt: str, model: str) -> dict:
         try:
-            # Construct parameters
             params = {
                 "model": model,
                 "max_tokens": 1024,
+                "system": system_prompt,
                 "messages": [
-                    {"role": "user", "content": f"{system_prompt}\n\n{email_content}"} 
-                    # Claude system prompt can also be top-level 'system' param, but integrating here for simplicity
+                    {"role": "user", "content": email_content}
                 ],
             }
 
-            # Handle Thinking/Effort
-            # User specified: thinking: { "type": "adaptive" }, effort: low/medium/high/max
-            
-            # Map 'thinking_level' from config (low/medium/high) to Claude params
-            if "claude-3-7" in model or "claude-4" in model or "sonnet-4-5" in model or "opus-4-6" in model:
-                 # Thinking parameters
-                if self.thinking_level == "medium" or self.thinking_level == "high":
-                     params["thinking"] = {"type": "adaptive"}
-                     params["effort"] = "high" if self.thinking_level == "high" else "medium"
-                else:
-                    # Default/Low: No special thinking or low effort
-                    pass 
+            # If thinking_level is medium or high, pass thinking params.
+            # Let the API reject if the model doesn't support it.
+            if self.thinking_level in ("medium", "high"):
+                params["thinking"] = {"type": "adaptive"}
+                params["effort"] = self.thinking_level
 
-            # Force JSON if possible via tool use or prompt, but Claude is good at following instruction.
-            # For strict JSON, we often prefill the Assistant message:
-            # params["messages"].append({"role": "assistant", "content": "{"})
-            
             response = self.client.messages.create(**params)
-            
-            content = response.content[0].text
-            # Attempt to parse json
-            # If we prefilled '{', we need to add it back.
+
+            # With thinking enabled, find the text block (skip thinking blocks)
+            content = None
+            for block in response.content:
+                if block.type == "text":
+                    content = block.text
+                    break
+            if not content:
+                content = response.content[0].text
+
             return json.loads(content)
         except Exception as e:
             print(f"Claude API Error: {e}")
