@@ -10,6 +10,7 @@ import streamlit as st
 import time
 import os
 import re
+import html
 from collections import defaultdict
 
 # Import backend functions
@@ -191,11 +192,11 @@ def parse_briefing_file(filepath="daily_briefing.md"):
 def render_email_card(entry):
     """Render a single email entry as a styled card."""
     icon = entry["priority_icon"]
-    subject = entry["subject"]
-    sender = entry["sender"]
-    summary = entry["summary"]
-    account = entry["account"]
-    
+    subject = html.escape(entry["subject"])
+    sender = html.escape(entry["sender"])
+    summary = html.escape(entry["summary"])
+    account = html.escape(entry["account"])
+
     acct_html = f'<span class="email-account-tag">{account}</span>' if account else ""
     
     # Priority badge
