@@ -147,7 +147,13 @@ class ClaudeProvider(LLMProvider):
             if not content:
                 content = response.content[0].text
 
-            return json.loads(content)
+            # Strip accidental markdown fences before parsing
+            stripped = content.strip()
+            if stripped.startswith("```"):
+                stripped = stripped.split("\n", 1)[-1]  # drop opening fence line
+                stripped = stripped.rsplit("```", 1)[0].strip()
+
+            return json.loads(stripped)
         except Exception as e:
             print(f"Claude API Error: {e}")
             return None
