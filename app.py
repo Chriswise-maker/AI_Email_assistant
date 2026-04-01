@@ -22,7 +22,8 @@ except ImportError:
     CANONICAL_CATEGORIES = ["Security", "Bills & Invoices", "Orders & Shipping",
                             "Newsletters", "Personal", "Notifications", "Spam", "Other"]
 
-from utils import load_config, save_config, set_account_password, set_env_variable, get_env_value
+import json
+from utils import load_config, save_config, set_account_password, set_env_variable, get_env_value, PROJECT_ROOT
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -115,14 +116,16 @@ accounts = config.get("accounts", [])
 provider = settings.get("provider", "groq")
 
 # --- Briefing Parser ---
-def parse_briefing_file(filepath="daily_briefing.md"):
+def parse_briefing_file(filepath=None):
     """Parse the briefing markdown into structured data.
     Returns list of dicts: {subject, sender, summary, category, priority_icon, priority_level, account, run_timestamp}
     Only parses the LATEST briefing run.
     """
+    if filepath is None:
+        filepath = PROJECT_ROOT / "daily_briefing.md"
     if not os.path.exists(filepath):
         return []
-    
+
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             content = f.read()
@@ -236,10 +239,11 @@ with st.sidebar:
         st.rerun()
 
 # --- Create Tabs ---
-tab_dashboard, tab_accounts, tab_settings = st.tabs([
+tab_dashboard, tab_accounts, tab_settings, tab_debug = st.tabs([
     "📊 Dashboard",
-    "📬 Accounts", 
-    "⚙️ Settings"
+    "📬 Accounts",
+    "⚙️ Settings",
+    "🐛 Debug",
 ])
 
 # ============================================================
@@ -507,3 +511,75 @@ with tab_settings:
         config["system_prompt"] = new_prompt
         save_config(config)
         st.success("Settings updated!")
+
+
+# ============================================================
+# DEBUG TAB
+# ============================================================
+with tab_debug:
+    st.header("Debug Log")
+
+    debug_log_path = PROJECT_ROOT / "debug_logs.json"
+
+    col_refresh, col_clear = st.columns([1, 1])
+    with col_refresh:
+        if st.button("🔄 Refresh"):
+            st.rerun()
+    with col_clear:
+        if st.button("🗑️ Clear Log", type="secondary"):
+            if debug_log_path.exists():
+                debug_log_path.unlink()
+            st.success("Log cleared.")
+            st.rerun()
+
+    if not debug_log_path.exists():
+        st.info("No debug log yet. Run triage to generate entries.")
+    else:
+        try:
+            with open(debug_log_path, "r", encoding="utf-8") as f:
+                logs = json.load(f)
+        except Exception as e:
+            st.error(f"Failed to read debug_logs.json: {e}")
+            logs = []
+
+        if not logs:
+            st.info("Log file is empty.")
+        else:
+            st.caption(f"{len(logs)} entries (newest first)")
+
+            # Filter controls
+            fc1, fc2 = st.columns(2)
+            level_filter = fc1.multiselect(
+                "Level", options=["INFO", "WARN", "ERROR"], default=["INFO", "WARN", "ERROR"]
+            )
+            account_options = sorted({e.get("account", "") for e in logs if e.get("account")})
+            account_filter = fc2.multiselect("Account", options=account_options, default=account_options)
+
+            filtered = [
+                e for e in logs
+                if e.get("level") in level_filter and e.get("account", "") in account_filter
+            ]
+
+            st.caption(f"Showing {len(filtered)} of {len(logs)} entries")
+
+            # Level badge colours
+            level_colours = {"INFO": "🟢", "WARN": "🟡", "ERROR": "🔴"}
+
+            for entry in filtered:
+                level = entry.get("level", "INFO")
+                icon = level_colours.get(level, "⚪")
+                ts = entry.get("timestamp", "")[:19].replace("T", " ")
+                subject = entry.get("subject", "(no subject)")
+                account = entry.get("account", "")
+                category = entry.get("category", "")
+                action = entry.get("action", "")
+                priority = entry.get("priority")
+                dry = " [DRY RUN]" if entry.get("dry_run") else ""
+
+                with st.expander(f"{icon} {ts}  ·  {subject[:60]}{dry}"):
+                    c1, c2, c3 = st.columns(3)
+                    c1.markdown(f"**Account:** {account}")
+                    c2.markdown(f"**Category:** {category}")
+                    c3.markdown(f"**Priority:** {priority if priority is not None else '—'}")
+                    st.markdown(f"**Action:** `{action}`")
+                    st.markdown(f"**Sender:** {entry.get('sender', '')}")

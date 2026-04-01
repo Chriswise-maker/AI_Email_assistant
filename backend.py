@@ -11,6 +11,8 @@ This module handles:
 """
 
 import sys
+import json
+import time
 import traceback
 import datetime
 from pathlib import Path
@@ -19,7 +21,7 @@ from bs4 import BeautifulSoup
 from imap_tools import MailBox, AND
 from imap_tools import MailMessage
 
-from utils import load_config, get_account_password, get_env_value
+from utils import load_config, get_account_password, get_env_value, PROJECT_ROOT
 from llm_providers import get_provider
 
 # Canonical categories — must match config.yaml and system prompt
@@ -84,6 +86,25 @@ def normalize_category(raw_category: str) -> str:
             return canon
     return "Other"
 
+DEBUG_LOG_PATH = PROJECT_ROOT / "debug_logs.json"
+_MAX_DEBUG_ENTRIES = 500  # Cap so the file doesn't grow unbounded
+
+
+def write_debug_log(entry: dict) -> None:
+    """Append a structured entry to debug_logs.json (newest first, capped at _MAX_DEBUG_ENTRIES)."""
+    try:
+        logs = []
+        if DEBUG_LOG_PATH.exists():
+            with open(DEBUG_LOG_PATH, "r", encoding="utf-8") as f:
+                logs = json.load(f)
+        logs.insert(0, entry)
+        logs = logs[:_MAX_DEBUG_ENTRIES]
+        with open(DEBUG_LOG_PATH, "w", encoding="utf-8") as f:
+            json.dump(logs, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"Error writing debug log: {e}")
+
+
 def process_emails(dry_run: bool = False) -> dict:
     """
     Main entry point for email processing.
@@ -140,23 +161,37 @@ def process_emails(dry_run: bool = False) -> dict:
             # Persistent connection per account
             with MailBox(server).login(email_addr, password, initial_folder='INBOX') as mailbox:
                 # Fetch ALL UNSEEN messages from INBOX
-                # mark_seen=True so processed emails won't be re-read next run
-                emails = list(mailbox.fetch(AND(seen=False), mark_seen=True))
+                # mark_seen=False so failed emails stay unread for next run
+                emails = list(mailbox.fetch(AND(seen=False), mark_seen=False))
                 
+                if fetch_limit:
+                    emails = emails[:fetch_limit]
+
                 print(f"  Found {len(emails)} unseen emails in INBOX.")
-                
+
+                max_body_chars = settings.get("max_body_chars", 3000)
+
                 for email in emails:
                     try:
                         # 1. Clean Body
-                        cleaned_body = clean_email_body(email.html or email.text)
+                        cleaned_body = clean_email_body(email.html or email.text, max_chars=max_body_chars)
                         
-                        # 2. Analyze
+                        # 2. Analyze (with single retry on failure)
                         analysis = analyze_email_content(
-                            llm_provider, 
-                            cleaned_body, 
+                            llm_provider,
+                            cleaned_body,
                             config.get("system_prompt"),
                             model_name
                         )
+                        if analysis is None:
+                            print(f"  Retrying analysis for: {email.subject}")
+                            time.sleep(2)
+                            analysis = analyze_email_content(
+                                llm_provider,
+                                cleaned_body,
+                                config.get("system_prompt"),
+                                model_name
+                            )
                         
                         if analysis:
                             category = normalize_category(analysis.get("category", "Other"))
@@ -171,13 +206,28 @@ def process_emails(dry_run: bool = False) -> dict:
                             # 3. Apply Rules (mark read, flag, etc)
                             # Passing mailbox and email UID to perform actions
                             apply_rules(mailbox, email.uid, action_name, dry_run)
-                            
+
+                            # Mark as seen only after successful analysis + rule application
+                            if not dry_run:
+                                mailbox.flag(email.uid, '\\Seen', True)
+
                             stats["processed"] += 1
                             stats["details"].append({
                                 "account": account_id,
                                 "subject": email.subject,
                                 "category": category,
                                 "action": action_name
+                            })
+                            write_debug_log({
+                                "timestamp": datetime.datetime.now().isoformat(),
+                                "level": "INFO",
+                                "account": account_id,
+                                "subject": email.subject,
+                                "sender": email.from_,
+                                "category": category,
+                                "priority": priority,
+                                "action": action_name,
+                                "dry_run": dry_run,
                             })
                             
                             # Collect for briefing
@@ -198,6 +248,17 @@ def process_emails(dry_run: bool = False) -> dict:
                                 "category": "Analysis Failed",
                                 "action": "Skipped"
                             })
+                            write_debug_log({
+                                "timestamp": datetime.datetime.now().isoformat(),
+                                "level": "WARN",
+                                "account": account_id,
+                                "subject": email.subject,
+                                "sender": email.from_,
+                                "category": "Analysis Failed",
+                                "priority": None,
+                                "action": "Skipped",
+                                "dry_run": dry_run,
+                            })
                             
                     except Exception as e_inner:
                         print(f"  Error processing email '{email.subject}': {e_inner}")
@@ -207,6 +268,17 @@ def process_emails(dry_run: bool = False) -> dict:
                             "subject": email.subject,
                             "category": "Error",
                             "action": str(e_inner)
+                        })
+                        write_debug_log({
+                            "timestamp": datetime.datetime.now().isoformat(),
+                            "level": "ERROR",
+                            "account": account_id,
+                            "subject": email.subject,
+                            "sender": getattr(email, "from_", ""),
+                            "category": "Error",
+                            "priority": None,
+                            "action": str(e_inner),
+                            "dry_run": dry_run,
                         })
 
         except Exception as e:
@@ -269,7 +341,7 @@ def append_to_briefing(summaries: List[dict]) -> None:
     Prepend processed email summaries to daily_briefing.md (newest first)
     Group by Category first, then sort by Priority (desc).
     """
-    briefing_path = Path("daily_briefing.md")
+    briefing_path = PROJECT_ROOT / "daily_briefing.md"
     
     # Sort: Category -> Priority (desc)
     # Ensure priority is int for robust sorting
