@@ -74,7 +74,7 @@
 
 ### Email History & Search
 
-- [ ] **Add SQLite database for email history**
+- [x] **Add SQLite database for email history**
   - Store every processed email: uid, account, sender, subject, category, priority, summary, timestamp, raw_analysis
   - Replace `daily_briefing.md` as the data source for the dashboard (keep briefing as optional export)
   - Add search/filter by sender, subject, category, date range in dashboard

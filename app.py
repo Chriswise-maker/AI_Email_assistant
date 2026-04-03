@@ -23,7 +23,9 @@ except ImportError:
                             "Newsletters", "Personal", "Notifications", "Spam", "Other"]
 
 import json
+import datetime
 from utils import load_config, save_config, set_account_password, set_env_variable, get_env_value, PROJECT_ROOT
+from database import get_latest_run, get_emails_for_run, get_all_runs, search_emails, get_stats
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -239,8 +241,9 @@ with st.sidebar:
         st.rerun()
 
 # --- Create Tabs ---
-tab_dashboard, tab_accounts, tab_settings, tab_debug = st.tabs([
+tab_dashboard, tab_history, tab_accounts, tab_settings, tab_debug = st.tabs([
     "📊 Dashboard",
+    "📜 History",
     "📬 Accounts",
     "⚙️ Settings",
     "🐛 Debug",
@@ -306,68 +309,175 @@ with tab_dashboard:
             st.error(f"An unexpected error occurred: {str(e)}")
     
     st.divider()
-    
-    # --- Parse briefing data ---
-    entries = parse_briefing_file()
-    
-    if not entries:
+
+    # --- Load latest run from database ---
+    latest_run = get_latest_run()
+
+    if not latest_run:
         st.info("📭 No briefing data yet. Run triage to populate your daily briefing.")
     else:
-        # Show run timestamp
-        if entries[0].get("run_timestamp"):
-            st.caption(f"📅 Latest briefing: {entries[0]['run_timestamp']}")
-        
-        # --- Row 2: Priority Alerts (urgent + high only) ---
-        urgent_entries = [e for e in entries if e["priority_level"] >= 4]
-        
-        if urgent_entries:
-            st.markdown('<div class="section-header">🚨 Priority Alerts</div>', unsafe_allow_html=True)
-            for entry in sorted(urgent_entries, key=lambda x: -x["priority_level"]):
-                render_email_card(entry)
-            st.divider()
-        
-        # --- Row 3: Full Briefing by Category (tabs) ---
-        st.markdown('<div class="section-header">📂 All Emails by Category</div>', unsafe_allow_html=True)
-        
-        # Group entries by category
-        by_category = defaultdict(list)
-        for entry in entries:
-            by_category[entry["category"]].append(entry)
-        
-        # Build tab labels with counts — only show categories that have entries
-        # Use canonical order, then append any non-canonical categories
-        ordered_cats = []
-        for cat in CANONICAL_CATEGORIES:
-            if cat in by_category:
-                ordered_cats.append(cat)
-        for cat in by_category:
-            if cat not in ordered_cats:
-                ordered_cats.append(cat)
-        
-        # Category icons
-        cat_icons = {
-            "Security": "🔒",
-            "Bills & Invoices": "💰",
-            "Orders & Shipping": "📦",
-            "Newsletters": "📰",
-            "Personal": "👤",
-            "Notifications": "🔔",
-            "Spam": "🗑️",
-            "Other": "📋",
-        }
-        
-        tab_labels = [f"{cat_icons.get(cat, '📁')} {cat} ({len(by_category[cat])})" for cat in ordered_cats]
-        
-        if tab_labels:
-            cat_tabs = st.tabs(tab_labels)
-            
-            for i, cat in enumerate(ordered_cats):
-                with cat_tabs[i]:
-                    cat_entries = sorted(by_category[cat], key=lambda x: -x["priority_level"])
-                    for entry in cat_entries:
-                        render_email_card(entry)
+        entries = get_emails_for_run(latest_run["run_id"])
+
+        if not entries:
+            st.info("📭 Latest run processed no emails.")
         else:
-            st.info("No categorized emails to display.")
+            # Convert DB rows to the format render_email_card expects
+            for e in entries:
+                p = e.get("priority", 1) or 1
+                if p >= 5:
+                    e["priority_icon"] = "🔴"
+                elif p >= 4:
+                    e["priority_icon"] = "🟠"
+                elif p == 3:
+                    e["priority_icon"] = "🟡"
+                else:
+                    e["priority_icon"] = "⚪"
+                e["priority_level"] = p
+
+            # Show run timestamp
+            run_ts = latest_run.get("started_at", "")[:19].replace("T", " ")
+            run_provider = latest_run.get("provider", "")
+            st.caption(f"📅 Latest run: {run_ts}  ·  {run_provider.upper()}  ·  {latest_run.get('total_processed', 0)} processed")
+
+            # --- Priority Alerts (urgent + high only) ---
+            urgent_entries = [e for e in entries if e["priority_level"] >= 4]
+
+            if urgent_entries:
+                st.markdown('<div class="section-header">🚨 Priority Alerts</div>', unsafe_allow_html=True)
+                for entry in sorted(urgent_entries, key=lambda x: -x["priority_level"]):
+                    render_email_card(entry)
+                st.divider()
+
+            # --- Full Briefing by Category (tabs) ---
+            st.markdown('<div class="section-header">📂 All Emails by Category</div>', unsafe_allow_html=True)
+
+            by_category = defaultdict(list)
+            for entry in entries:
+                by_category[entry["category"]].append(entry)
+
+            ordered_cats = []
+            for cat in CANONICAL_CATEGORIES:
+                if cat in by_category:
+                    ordered_cats.append(cat)
+            for cat in by_category:
+                if cat not in ordered_cats:
+                    ordered_cats.append(cat)
+
+            cat_icons = {
+                "Security": "🔒", "Bills & Invoices": "💰",
+                "Orders & Shipping": "📦", "Newsletters": "📰",
+                "Personal": "👤", "Notifications": "🔔",
+                "Spam": "🗑️", "Other": "📋",
+            }
+
+            tab_labels = [f"{cat_icons.get(cat, '📁')} {cat} ({len(by_category[cat])})" for cat in ordered_cats]
+
+            if tab_labels:
+                cat_tabs = st.tabs(tab_labels)
+                for i, cat in enumerate(ordered_cats):
+                    with cat_tabs[i]:
+                        cat_entries = sorted(by_category[cat], key=lambda x: -x["priority_level"])
+                        for entry in cat_entries:
+                            render_email_card(entry)
+            else:
+                st.info("No categorized emails to display.")
+
+
+# ============================================================
+# HISTORY TAB
+# ============================================================
+with tab_history:
+    st.header("Email History")
+
+    db_stats = get_stats()
+
+    if db_stats["total_emails"] == 0:
+        st.info("No email history yet. Run triage to start building your archive.")
+    else:
+        # Stats row
+        hs1, hs2, hs3 = st.columns(3)
+        hs1.metric("Total Emails", db_stats["total_emails"])
+        hs2.metric("Triage Runs", db_stats["total_runs"])
+        hs3.metric("Accounts", len(db_stats["accounts"]))
+
+        st.divider()
+
+        # Search & Filter controls
+        st.subheader("Search & Filter")
+
+        search_query = st.text_input("Search", placeholder="Search by subject, sender, or summary...")
+
+        fc1, fc2, fc3 = st.columns(3)
+        with fc1:
+            cat_options = ["All"] + CANONICAL_CATEGORIES
+            filter_cat = st.selectbox("Category", cat_options)
+        with fc2:
+            acct_options = ["All"] + db_stats["accounts"]
+            filter_acct = st.selectbox("Account", acct_options)
+        with fc3:
+            filter_priority = st.selectbox("Min Priority", [0, 1, 2, 3, 4, 5], format_func=lambda x: "Any" if x == 0 else f"{x}+")
+
+        dc1, dc2 = st.columns(2)
+        with dc1:
+            date_from = st.date_input("From", value=None, format="YYYY-MM-DD")
+        with dc2:
+            date_to = st.date_input("To", value=None, format="YYYY-MM-DD")
+
+        # Run search
+        results = search_emails(
+            query=search_query,
+            category=filter_cat if filter_cat != "All" else "",
+            account=filter_acct if filter_acct != "All" else "",
+            priority_min=filter_priority,
+            date_from=str(date_from) if date_from else "",
+            date_to=str(date_to) if date_to else "",
+        )
+
+        st.caption(f"Showing {len(results)} emails")
+
+        for e in results:
+            p = e.get("priority", 1) or 1
+            if p >= 5:
+                e["priority_icon"] = "🔴"
+            elif p >= 4:
+                e["priority_icon"] = "🟠"
+            elif p == 3:
+                e["priority_icon"] = "🟡"
+            else:
+                e["priority_icon"] = "⚪"
+            e["priority_level"] = p
+
+            ts = e.get("processed_at", "")[:16].replace("T", " ")
+            render_email_card(e)
+            st.caption(f"    {ts}  ·  {e.get('account', '')}  ·  action: {e.get('action', '')}")
+
+        # Past runs
+        st.divider()
+        st.subheader("Past Triage Runs")
+        runs = get_all_runs(limit=20)
+        if runs:
+            for run in runs:
+                run_ts = run.get("started_at", "")[:19].replace("T", " ")
+                prov = (run.get("provider") or "").upper()
+                processed = run.get("total_processed", 0)
+                errors = run.get("total_errors", 0)
+                label = f"{run_ts}  ·  {prov}  ·  {processed} processed"
+                if errors:
+                    label += f"  ·  {errors} errors"
+                with st.expander(label):
+                    run_emails = get_emails_for_run(run["run_id"])
+                    if run_emails:
+                        for re_entry in run_emails:
+                            p = re_entry.get("priority", 1) or 1
+                            icon = "🔴" if p >= 5 else "🟠" if p >= 4 else "🟡" if p == 3 else "⚪"
+                            st.markdown(
+                                f"{icon} **{re_entry.get('subject', '')}** — {re_entry.get('category', '')} "
+                                f"(P{p}) — _{re_entry.get('summary', '')}_"
+                            )
+                    else:
+                        st.caption("No emails in this run.")
+        else:
+            st.caption("No past runs.")
 
 
 # ============================================================
@@ -583,3 +693,5 @@ with tab_debug:
                     c3.markdown(f"**Priority:** {priority if priority is not None else '—'}")
                     st.markdown(f"**Action:** `{action}`")
                     st.markdown(f"**Sender:** {entry.get('sender', '')}")
+                    if entry.get("error"):
+                        st.error(f"**Error:** {entry['error']}")

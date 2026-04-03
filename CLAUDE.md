@@ -23,9 +23,10 @@ app.py (Streamlit UI)
 ### Key Files
 | File | Purpose | Lines |
 |---|---|---|
-| `app.py` | Streamlit dashboard — tabs: Dashboard, Accounts, Settings | ~510 |
+| `app.py` | Streamlit dashboard — tabs: Dashboard, History, Accounts, Settings, Debug | ~600 |
 | `backend.py` | `process_emails()` orchestrator, IMAP ops, briefing generation | ~330 |
 | `llm_providers.py` | Abstract `LLMProvider` + Groq/DeepSeek/Gemini/Claude implementations | ~175 |
+| `database.py` | SQLite email history — schema, CRUD, search (stores `emails.db`) | ~190 |
 | `utils.py` | `load_config`, `save_config`, env variable read/write | ~68 |
 | `config.yaml` | Accounts, providers, categories, rules, system prompt | ~67 |
 
@@ -37,8 +38,9 @@ app.py (Streamlit UI)
 5. LLM returns JSON: `{category, priority (1-5), summary}`
 6. `normalize_category()` fuzzy-matches LLM output to canonical categories
 7. `apply_rules()` flags/marks-read based on category->action mappings
-8. `append_to_briefing()` writes results to `daily_briefing.md`
-9. `app.py` parses briefing file and renders email cards in dashboard
+8. `save_email()` persists result to SQLite (`emails.db`)
+9. `append_to_briefing()` writes results to `daily_briefing.md` (legacy export)
+10. `app.py` queries SQLite for dashboard + history views
 
 ### Canonical Categories
 Security, Bills & Invoices, Orders & Shipping, Newsletters, Personal, Notifications, Spam, Other

@@ -23,6 +23,7 @@ from imap_tools import MailMessage
 
 from utils import load_config, get_account_password, get_env_value, PROJECT_ROOT
 from llm_providers import get_provider
+from database import create_run, finish_run, save_email
 
 # Canonical categories — must match config.yaml and system prompt
 CANONICAL_CATEGORIES = [
@@ -138,6 +139,9 @@ def process_emails(dry_run: bool = False) -> dict:
     except ValueError as e:
         return {"status": "error", "message": str(e)}
 
+    # Create a triage run in the database
+    run_id = create_run(provider=provider_name, model=model_name)
+
     stats = {"processed": 0, "errors": 0, "skipped": 0, "details": []}
     all_summaries = [] # List of {account, subject, summary, category, priority}
 
@@ -229,7 +233,21 @@ def process_emails(dry_run: bool = False) -> dict:
                                 "action": action_name,
                                 "dry_run": dry_run,
                             })
-                            
+
+                            # Persist to SQLite
+                            save_email(
+                                run_id=run_id,
+                                uid=email.uid,
+                                account=account_id,
+                                sender=email.from_,
+                                subject=email.subject,
+                                category=category,
+                                priority=priority,
+                                summary=analysis.get("summary", ""),
+                                action=action_name,
+                                dry_run=dry_run,
+                            )
+
                             # Collect for briefing
                             all_summaries.append({
                                 "account": account_id,
@@ -242,11 +260,12 @@ def process_emails(dry_run: bool = False) -> dict:
                         else:
                             print(f"  Failed to analyze: {email.subject}")
                             stats["skipped"] += 1
+                            error_reason = getattr(llm_provider, "last_error", "Unknown error")
                             stats["details"].append({
                                 "account": account_id,
                                 "subject": email.subject,
                                 "category": "Analysis Failed",
-                                "action": "Skipped"
+                                "action": f"Skipped — {error_reason}"
                             })
                             write_debug_log({
                                 "timestamp": datetime.datetime.now().isoformat(),
@@ -257,6 +276,7 @@ def process_emails(dry_run: bool = False) -> dict:
                                 "category": "Analysis Failed",
                                 "priority": None,
                                 "action": "Skipped",
+                                "error": error_reason,
                                 "dry_run": dry_run,
                             })
                             
@@ -290,6 +310,9 @@ def process_emails(dry_run: bool = False) -> dict:
     # 4. Generate Daily Briefing
     if all_summaries:
         append_to_briefing(all_summaries)
+
+    # 5. Finalize the run in the database
+    finish_run(run_id, stats["processed"], stats["errors"], stats["skipped"])
 
     return stats
 
