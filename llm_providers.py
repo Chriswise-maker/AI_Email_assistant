@@ -12,18 +12,21 @@ import google.generativeai as genai
 import anthropic
 
 class LLMProvider(ABC):
+    last_error: str = ""
+
     @abstractmethod
     def analyze_email(self, email_content: str, system_prompt: str, model: str) -> dict:
         """
         Send email content to LLM and return structured analysis.
-        
+
         Args:
             email_content: The body of the email to analyze.
             system_prompt: The system prompt guiding the LLM.
             model: The specific model ID to use.
-            
+
         Returns:
-            dict: The analysis result (category, priority, summary).
+            dict: The analysis result (category, priority, summary), or None on failure.
+                  On failure, self.last_error contains the error message.
         """
         pass
 
@@ -45,7 +48,8 @@ class GroqProvider(LLMProvider):
             )
             return json.loads(response.choices[0].message.content)
         except Exception as e:
-            print(f"Groq API Error: {e}")
+            self.last_error = f"Groq API Error: {e}"
+            print(self.last_error)
             return None
 
 class DeepSeekProvider(LLMProvider):
@@ -75,7 +79,8 @@ class DeepSeekProvider(LLMProvider):
                 content = content.replace("```json", "").replace("```", "")
             return json.loads(content)
         except Exception as e:
-            print(f"DeepSeek API Error: {e}")
+            self.last_error = f"DeepSeek API Error: {e}"
+            print(self.last_error)
             return None
 
 class GeminiProvider(LLMProvider):
@@ -109,9 +114,8 @@ class GeminiProvider(LLMProvider):
             response = model_instance.generate_content(email_content)
             return json.loads(response.text)
         except Exception as e:
-            print(f"Gemini API Error: {e}")
-            import traceback
-            traceback.print_exc()
+            self.last_error = f"Gemini API Error: {e}"
+            print(self.last_error)
             return None
 
 class ClaudeProvider(LLMProvider):
@@ -155,7 +159,8 @@ class ClaudeProvider(LLMProvider):
 
             return json.loads(stripped)
         except Exception as e:
-            print(f"Claude API Error: {e}")
+            self.last_error = f"Claude API Error: {e}"
+            print(self.last_error)
             return None
 
 def get_provider(provider_name: str, api_key: str, config: dict = None) -> LLMProvider:

@@ -242,11 +242,12 @@ def process_emails(dry_run: bool = False) -> dict:
                         else:
                             print(f"  Failed to analyze: {email.subject}")
                             stats["skipped"] += 1
+                            error_reason = getattr(llm_provider, "last_error", "Unknown error")
                             stats["details"].append({
                                 "account": account_id,
                                 "subject": email.subject,
                                 "category": "Analysis Failed",
-                                "action": "Skipped"
+                                "action": f"Skipped — {error_reason}"
                             })
                             write_debug_log({
                                 "timestamp": datetime.datetime.now().isoformat(),
@@ -257,6 +258,7 @@ def process_emails(dry_run: bool = False) -> dict:
                                 "category": "Analysis Failed",
                                 "priority": None,
                                 "action": "Skipped",
+                                "error": error_reason,
                                 "dry_run": dry_run,
                             })
                             

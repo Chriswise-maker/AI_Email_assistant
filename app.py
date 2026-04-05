@@ -583,3 +583,5 @@ with tab_debug:
                     c3.markdown(f"**Priority:** {priority if priority is not None else '—'}")
                     st.markdown(f"**Action:** `{action}`")
                     st.markdown(f"**Sender:** {entry.get('sender', '')}")
+                    if entry.get("error"):
+                        st.error(f"**Error:** {entry['error']}")
