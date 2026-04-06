@@ -7,7 +7,6 @@ This module handles:
 - Email fetching and cleaning
 - LLM API integration (via llm_providers.py)
 - Rule execution (flag, move, mark read)
-- Daily briefing generation
 """
 
 import sys
@@ -110,8 +109,7 @@ def process_emails(dry_run: bool = False) -> dict:
     Main entry point for email processing.
     
     Iterates through all enabled accounts, fetches unseen emails,
-    analyzes them with configured LLM, applies configured rules,
-    and updates the daily briefing.
+    analyzes them with configured LLM, and applies configured rules.
     """
     config = load_config()
     accounts = config.get("accounts", [])
@@ -139,7 +137,6 @@ def process_emails(dry_run: bool = False) -> dict:
         return {"status": "error", "message": str(e)}
 
     stats = {"processed": 0, "errors": 0, "skipped": 0, "details": []}
-    all_summaries = [] # List of {account, subject, summary, category, priority}
 
     for account in accounts:
         if not account.get("enabled", True):
@@ -230,15 +227,6 @@ def process_emails(dry_run: bool = False) -> dict:
                                 "dry_run": dry_run,
                             })
                             
-                            # Collect for briefing
-                            all_summaries.append({
-                                "account": account_id,
-                                "sender": email.from_,
-                                "subject": email.subject,
-                                "category": category,
-                                "priority": priority, # Int guaranteed
-                                "summary": analysis.get("summary", "")
-                            })
                         else:
                             print(f"  Failed to analyze: {email.subject}")
                             stats["skipped"] += 1
@@ -289,10 +277,6 @@ def process_emails(dry_run: bool = False) -> dict:
             stats["errors"] += 1
             stats["details"].append({"account": account_id, "error": str(e)})
 
-    # 4. Generate Daily Briefing
-    if all_summaries:
-        append_to_briefing(all_summaries)
-
     return stats
 
 
@@ -338,63 +322,4 @@ def apply_rules(mailbox: MailBox, uid: str, action_name: str, dry_run: bool = Fa
         print(f"Error applying rule '{action_name}' to UID {uid}: {e}")
 
 
-def append_to_briefing(summaries: List[dict]) -> None:
-    """
-    Prepend processed email summaries to daily_briefing.md (newest first)
-    Group by Category first, then sort by Priority (desc).
-    """
-    briefing_path = PROJECT_ROOT / "daily_briefing.md"
-    
-    # Sort: Category -> Priority (desc)
-    # Ensure priority is int for robust sorting
-    summaries.sort(key=lambda x: (x.get('category', 'Other'), -int(x.get('priority', 1))))
-    
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    markdown = f"\n##  Briefing Run: {timestamp}\n"
-    markdown += f"Processed {len(summaries)} emails.\n\n"
-    
-    current_category = None
-    
-    for item in summaries:
-        category = item.get('category', 'Other')
-        if category != current_category:
-            current_category = category
-            markdown += f"### {current_category}\n"
-        
-        p = int(item.get('priority', 1))
-        
-        # Priority Icons
-        if p >= 5:
-            icon = "🔴" # Urgent
-        elif p >= 4:
-            icon = "🟠" # High
-        elif p == 3:
-            icon = "🟡" # Medium
-        else:
-            icon = "⚪" # Low
-        
-        subject = item.get('subject', 'No Subject')
-        sender = item.get('sender', 'Unknown')
-        summary = item.get('summary', 'No summary provided')
-        
-        account = item.get('account', '')
-        acct_tag = f" [{account}]" if account else ""
-        markdown += f"- {icon} **{subject}** (from {sender}){acct_tag}\n"
-        markdown += f"  > {summary}\n"
-    
-    markdown += "\n---\n"
-    
-    try:
-        # Prepend by reading existing content first
-        existing_content = ""
-        if briefing_path.exists():
-            with open(briefing_path, "r", encoding="utf-8") as f:
-                existing_content = f.read()
-        
-        # Write new content followed by old content
-        with open(briefing_path, "w", encoding="utf-8") as f:
-            f.write(markdown + existing_content)
-    except Exception as e:
-        print(f"Error writing to daily_briefing.md: {e}")
 

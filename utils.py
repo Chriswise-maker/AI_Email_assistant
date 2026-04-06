@@ -43,8 +43,7 @@ def get_env_value(key, default=None):
 def get_account_password(account_id):
     if not account_id:
         return None
-    # If account_id is actually a dict from config loop on app.py or string? 
-    # Usually string ID.
+    # account_id should be a string ID (e.g. "GMX")
     env_key = f"PASSWORD_{account_id.upper()}"
     return os.getenv(env_key)
 
