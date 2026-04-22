@@ -68,13 +68,13 @@ All items closed. See git log for details. Summary of what was fixed:
   - One misclick → permanent data loss (DB row + IMAP message).
   - **Fix:** Trash table with 30-day TTL. Show "Undo" toast in UI for 10s after delete. Move IMAP delete to a "purge trash" job.
 
-- [ ] **Delete `app.py` (Streamlit dead code)** — 842 lines, unused since the Flask pivot. Move to `legacy/` or remove entirely. Confuses agents exploring the repo.
+- [x] **Delete `app.py` (Streamlit dead code)** — done. Flask + vanilla HTML/JS is the only UI.
 
 ### Minor
 
 - [ ] **Gemini `thinking_level` still hypothetical** — `llm_providers.py:143-149`. Verify against current SDK or remove the branch.
-- [ ] **Retire `daily_briefing.md`** — SQLite is source of truth now. Make the markdown briefing an opt-in export, not an auto-append.
-- [ ] **Clean up stale docs** — `walkthrough.md`, `task.md`, empty `utils_backup.py`.
+- [x] **Retire `daily_briefing.md`** — done. `append_to_briefing()` removed from `backend.py`; SQLite is the only source of truth.
+- [x] **Clean up stale docs** — `walkthrough.md`, `task.md`, `implementation_plan.md`, empty `utils_backup.py` all removed.
 - [ ] **No pagination on archive** — `get_all_runs(limit=50)`. Fine for now, but emails.db grows unbounded.
 - [ ] **`debug_logs.json` has no UI** — old Streamlit debug tab is gone. Add `/api/debug-logs` + a Settings panel (or drop the file).
 

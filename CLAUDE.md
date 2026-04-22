@@ -9,7 +9,7 @@ A Flask-based email triage assistant that connects to IMAP accounts, fetches unr
 - **Email**: `imap-tools` (IMAP protocol)
 - **LLM Providers**: Groq, DeepSeek (OpenAI-compatible), Google Gemini, Anthropic Claude
 - **Config**: YAML (`config.yaml`) + dotenv (secrets live in `~/.config/ai-email-assistant/.env`)
-- **Storage**: SQLite (`emails.db`) for history; `daily_briefing.md` is a legacy export; `debug_logs.json` for structured run logs
+- **Storage**: SQLite (`emails.db`) is the source of truth for email history; `debug_logs.json` for structured run logs
 - **Python**: 3.11+
 
 ## Architecture
@@ -33,7 +33,7 @@ server.py (Flask API)
         └─► utils.py      load_config, save_config, env/password helpers, PROJECT_ROOT
 ```
 
-**Note:** `app.py` (842 lines of Streamlit) is **dead code** — the Flask/HTML stack replaced it and nothing imports it. Safe to delete; kept around for now as reference.
+**Note:** The old Streamlit UI (`app.py`) has been removed. The Flask + vanilla JS stack is the only UI.
 
 ### Key Files
 | File | Purpose | Lines |
@@ -45,7 +45,6 @@ server.py (Flask API)
 | `database.py` | SQLite schema + CRUD (emails, triage_runs), search, init-on-import | ~260 |
 | `utils.py` | YAML load/save with block-scalar representer, `.env` helpers, `PROJECT_ROOT` | ~90 |
 | `config.yaml` | Accounts, providers, categories, rules, system prompt | ~70 |
-| `app.py` | **DEAD** — old Streamlit UI, unused by the Flask stack | ~840 |
 
 ### Data Flow
 1. User clicks run (rail button or mobile FAB) → `POST /api/triage` starts a background thread
@@ -58,9 +57,8 @@ server.py (Flask API)
 8. `normalize_category()` fuzzy-matches to canonical categories
 9. `apply_rules()` applies `flag` / `mark_read` / `delete` / `no_action`; then explicit `mailbox.flag(uid, '\\Seen', True)`
 10. `save_email()` upserts into SQLite (unique on `uid+account`)
-11. `append_to_briefing()` prepends markdown to `daily_briefing.md` (legacy)
-12. `finish_run()` writes totals; frontend reloads `/api/briefing`
-13. Emails grouped into `attention` (p≥4), `noted` (p=3), `quiet` (p≤2) for rendering
+11. `finish_run()` writes totals; frontend reloads `/api/briefing`
+12. Emails grouped into `attention` (p≥4), `noted` (p=3), `quiet` (p≤2) for rendering
 
 ### Canonical Categories
 Security, Bills & Invoices, Orders & Shipping, Newsletters, Personal, Notifications, Spam, Other
@@ -84,7 +82,7 @@ Security, Bills & Invoices, Orders & Shipping, Newsletters, Personal, Notificati
 - **NEVER overwrite `system_prompt` in `config.yaml`** — it's been deliberately crafted (bullet-point format, bilingual, bolded key info). Any task touching `config.yaml` must preserve it exactly. The custom YAML block-scalar representer in `utils.py` helps but don't rely on it alone — re-read before writing.
 - `.env` at `~/.config/ai-email-assistant/.env` is the single source of truth for secrets — never log or display API keys/passwords
 - All file paths flow through `PROJECT_ROOT` (from `utils.py`) — never use bare relative paths
-- `daily_briefing.md` is append-only (newest prepended). It's now a legacy export — SQLite is source of truth
+- SQLite (`emails.db`) is the only source of truth for email history — no markdown briefing export
 - Delete is irreversible — no trash table yet. Always confirm in UI before `/api/delete`
 
 ### LLM Provider Implementation Pattern
@@ -120,6 +118,5 @@ python server.py
 - `_PROVIDER_MODELS` in `server.py` and `config.yaml` defaults have drifted (e.g., Gemini 2.0 vs 3 preview). Consolidate source of truth.
 - `_triage` is module-global dict — if Flask reloads mid-triage (debug mode), status is lost forever and frontend polls forever. Add timeout on `pollTriage()` in the JS.
 - Gemini `thinking_level` still hypothetical — not verified against current SDK.
-- `app.py` is orphaned Streamlit code — delete or move to `legacy/`.
-- `utils_backup.py` empty; `walkthrough.md` / `task.md` stale.
 - `debug_logs.json` capped at 500 entries but no UI exposes it (old debug tab was on the Streamlit app).
+- `daily_briefing.md` file may still exist on disk from earlier runs — now unused; safe to delete.
