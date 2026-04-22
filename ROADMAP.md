@@ -1,244 +1,230 @@
 # Roadmap: AI Email Triage Assistant
 
-> Last reviewed: 2026-03-31
-> Status: v0.5 — Working prototype, needs stability fixes before feature work
+> Last reviewed: 2026-04-22
+> Status: v0.7 — Flask + HTML/JS frontend shipped; SQLite history + draft replies working. Not yet a daily driver: no auto-run, no notifications, drafts don't send.
 
 ---
 
-## Phase 1 — Stability & Bug Fixes
+## Where We Are
 
-**Goal:** Make the existing features actually reliable. No new features until these are solid.
-**Effort:** ~1 day
+**Shipped:**
+- Phase 1 stability fixes (all bugs closed)
+- Flask API + custom HTML/JS SPA (replaced Streamlit entirely — `app.py` is now dead code)
+- SQLite email history (`emails.db`) with search + archive of past runs
+- Draft reply generation (LLM) with per-email instruction + clipboard copy
+- Delete email (removes from DB + IMAP)
+- Settings UI: provider, model, fetch-limit, dry-run, add-account, per-account enable toggle
+- Debug logging to `debug_logs.json` (capped at 500 entries)
 
-### Critical (data loss / broken functionality)
+**Missing to be a daily driver:**
+- Auto-run (scheduler)
+- Notifications on urgent emails
+- Drafts go to IMAP Drafts folder / SMTP send (currently dead-end copy-paste)
+- Correction UI (re-categorize wrong assignments → learning loop)
+- VIP / sender rules
+- Keyboard shortcuts
 
-- [x] **Fix mark_seen timing in backend.py**
-  - **Bug:** `mark_seen=True` at fetch time (line 144) marks emails as read before LLM analysis. If analysis fails or app crashes, emails are silently lost from the unseen queue.
-  - **Fix:** Change to `mark_seen=False`. After successful analysis + rule application, explicitly call `mailbox.flag(uid, '\\Seen', True)`. On failure, email stays unread for next run.
-  - **Files:** `backend.py` (lines 144, 173, ~252)
+---
 
-- [x] **Fix Claude system prompt handling in llm_providers.py**
-  - **Bug:** System prompt is concatenated into the user message (line 127) instead of using Claude's `system` parameter. Weakens instruction-following.
-  - **Fix:** Move system prompt to `system` parameter in `params`. Same fix for Gemini — use `system_instruction` parameter on `GenerativeModel`.
-  - **Files:** `llm_providers.py` (ClaudeProvider lines 122-130, GeminiProvider lines 103-107)
+## Phase 1 — Stability & Bug Fixes ✅ COMPLETE
 
-- [x] **Fix Claude model detection for thinking/effort**
-  - **Bug:** Hardcoded string matching (line 136) doesn't match `claude-sonnet-4-6` (the model actually in config). Thinking mode is never activated.
-  - **Fix:** Remove model-gating entirely. If `thinking_level` is medium/high in config, always pass thinking params. Let the API reject if unsupported. Or use a simple version check (model contains `claude` and not `claude-3-5` or older).
-  - **Files:** `llm_providers.py` (lines 136-143)
+All items closed. See git log for details. Summary of what was fixed:
+- `mark_seen` timing (no more silent email loss)
+- Claude `system` parameter + extended thinking with proper `budget_tokens`
+- Gemini `system_instruction` parameter
+- `fetch_limit` + `max_body_chars` now actually enforced
+- YAML multiline representer added (`utils.py`)
+- `PROJECT_ROOT`-based absolute paths
+- LLM retry logic (1 retry, 2s delay)
+- Structured debug logging restored (`write_debug_log()`)
 
-- [x] **Update stale model name in config.yaml**
-  - **Bug:** `claude-sonnet-4-5` should be `claude-sonnet-4-6`.
-  - **Files:** `config.yaml` (line 19)
+---
 
-### Important (functionality not working as configured)
+## Phase 1.5 — Current Regressions & Tech Debt 🔧
 
-- [x] **Enforce fetch_limit**
-  - **Bug:** `fetch_limit` is read from config (line 99) but never applied. All unseen emails are fetched.
-  - **Fix:** Slice the email list: `emails = emails[:fetch_limit]`
-  - **Files:** `backend.py` (after line 144)
+**Bugs discovered in review that need cleanup before more features land.**
 
-- [x] **Pass max_body_chars from config to clean_email_body()**
-  - **Bug:** Hardcoded 3000 char limit ignores config value.
-  - **Fix:** Read `settings.get("max_body_chars", 3000)` and pass to `clean_email_body()`.
-  - **Files:** `backend.py` (lines 99, 151)
+### Critical
 
-- [x] **Fix YAML save destroying system_prompt formatting**
-  - **Bug:** `yaml.safe_dump` collapses the multiline `|` block scalar into a single line.
-  - **Fix:** Use `default_flow_style=False` and `default_style='|'` for string fields, or use `ruamel.yaml` which preserves formatting. Simplest: use `yaml.dump` with a custom representer for long strings.
-  - **Files:** `utils.py` (line 22), possibly `requirements.txt`
+- [ ] **Flask `debug=True` in production path** — `server.py:448`
+  - Werkzeug debugger + auto-reload. RCE vector if the port is ever exposed via tunnel / VPN misconfig.
+  - **Fix:** Default `debug=False`. Optional `--debug` flag for dev. Switch to `waitress` (simpler) or `gunicorn` for serving.
 
-- [x] **Make file paths absolute**
-  - **Bug:** `daily_briefing.md`, `debug_logs.json`, `config.yaml`, `.env` all use relative paths. Breaks if CWD differs.
-  - **Fix:** Define `PROJECT_ROOT = Path(__file__).parent` in `utils.py`. Derive all paths from it.
-  - **Files:** `utils.py`, `backend.py`, `app.py`
+- [ ] **`_triage` module-global state** — `server.py:112`
+  - If Flask auto-reloads (debug mode) or crashes mid-triage, status is stuck and frontend polls forever.
+  - **Fix:** Persist status in DB (`triage_runs.state` column: `running`/`complete`/`failed`), add 10-minute timeout to `pollTriage()` in JS, surface a "Cancel" button.
+
+### Important
+
+- [ ] **YAML representer not firing on `system_prompt`** — `utils.py:22-29`, `config.yaml:48`
+  - The block-scalar representer is registered but `system_prompt` still saves as escape-sequenced single-line quoted string. Likely `_yaml_dumper = yaml.SafeDumper` mutates the class globally but something else re-registers / the wrong Dumper is picked on some save paths.
+  - **Fix:** Define a subclass (`class _BlockDumper(yaml.SafeDumper): pass`) and attach the representer to that specifically. Add a round-trip test in `tests/test_config.py`.
+
+- [ ] **Model list drift** — `server.py:307` `_PROVIDER_MODELS` vs `config.yaml`
+  - Gemini: UI offers `gemini-2.0-flash` / `gemini-2.5-pro-preview`; config default is `gemini-3-flash-preview`. Two sources of truth.
+  - **Fix:** Move model list to `config.yaml` under `providers.<name>.available_models`, or to a single `models.py`. `server.py` reads from one place.
+
+- [ ] **Delete is irreversible** — `server.py:423`
+  - One misclick → permanent data loss (DB row + IMAP message).
+  - **Fix:** Trash table with 30-day TTL. Show "Undo" toast in UI for 10s after delete. Move IMAP delete to a "purge trash" job.
+
+- [ ] **Delete `app.py` (Streamlit dead code)** — 842 lines, unused since the Flask pivot. Move to `legacy/` or remove entirely. Confuses agents exploring the repo.
 
 ### Minor
 
-- [x] **Add basic retry logic for LLM failures**
-  - Single retry with 2s delay on provider `None` return. Prevents transient API errors from skipping emails.
-  - **Files:** `backend.py` (around line 154)
-
-- [x] **Restore debug viewer tab in UI**
-  - Tab was removed during UI redesign. Add it back as the 4th tab.
-  - Wire up `debug_logs.json` reading (the logging code may also need restoration in `backend.py`).
-  - **Files:** `app.py`, `backend.py`
+- [ ] **Gemini `thinking_level` still hypothetical** — `llm_providers.py:143-149`. Verify against current SDK or remove the branch.
+- [ ] **Retire `daily_briefing.md`** — SQLite is source of truth now. Make the markdown briefing an opt-in export, not an auto-append.
+- [ ] **Clean up stale docs** — `walkthrough.md`, `task.md`, empty `utils_backup.py`.
+- [ ] **No pagination on archive** — `get_all_runs(limit=50)`. Fine for now, but emails.db grows unbounded.
+- [ ] **`debug_logs.json` has no UI** — old Streamlit debug tab is gone. Add `/api/debug-logs` + a Settings panel (or drop the file).
 
 ---
 
-## Phase 2 — Core Features (Make It Actually Usable)
+## Phase 2 — The Two-Week Push to Daily Driver 🎯
 
-**Goal:** Turn the prototype into something you'd leave running daily.
-**Effort:** ~3-5 days
-**Prerequisite:** Phase 1 complete
+**Goal:** Make it so the app runs itself, tells you about urgent things, and completes the reply workflow. After this, you actually use it every day instead of forgetting it's there.
 
-### Email History & Search
+### Week 1 — Actual Assistant Behavior
 
-- [x] **Add SQLite database for email history**
-  - Store every processed email: uid, account, sender, subject, category, priority, summary, timestamp, raw_analysis
-  - Replace `daily_briefing.md` as the data source for the dashboard (keep briefing as optional export)
-  - Add search/filter by sender, subject, category, date range in dashboard
-  - **New file:** `database.py` (schema, CRUD operations)
-  - **Modified:** `backend.py` (write to DB after analysis), `app.py` (query DB instead of parsing markdown)
+- [ ] **APScheduler for automatic triage runs** *(half day)*
+  - Background scheduler in `server.py`, default 15-min interval, configurable from Settings
+  - `scheduler.add_job(process_emails, 'interval', minutes=15, id='triage')`
+  - Show "Last run: 2m ago · Next run: in 13m" in the rail / status dot tooltip
+  - Toggle on/off in Settings
+  - **Files:** `server.py`, `templates/index.html` (status display), `config.yaml` (schedule block)
+  - **New dep:** `apscheduler`
 
-### Background Scheduler
+- [ ] **macOS desktop notifications on priority ≥ 4** *(2 hours)*
+  - Simplest: `subprocess.run(['osascript', '-e', f'display notification "{subject}" with title "{sender}"'])`
+  - Fire once per triage run, summarizing urgent count: "3 urgent emails — click to open"
+  - Clicking the notification opens `http://localhost:5001`
+  - Toggle in Settings (`notify_on_urgent: true`)
+  - **Files:** `backend.py` (after processing), `server.py` (settings endpoint), `templates/index.html` (toggle)
 
-- [ ] **Add APScheduler for automatic triage runs**
-  - Configurable interval in settings (e.g., every 15 min, every hour)
-  - Show "last run" and "next run" timestamps in sidebar
-  - Option to enable/disable scheduler from UI
-  - **New dependency:** `apscheduler`
-  - **Modified:** `app.py` (scheduler init, UI controls), `config.yaml` (schedule settings)
+- [ ] **Save drafts to IMAP Drafts folder** *(half day)*
+  - `mailbox.append(raw_msg.as_bytes(), '+Drafts', dt=None, flag_set=['\\Draft'])` (folder name varies per provider: `Drafts`, `INBOX.Drafts`, `[Gmail]/Drafts` — detect via `mailbox.folder.list()`)
+  - Build RFC822 message with `In-Reply-To` + `References` for proper threading in user's email client
+  - Replace "Copy" button with "Save to Drafts" (keep Copy as secondary)
+  - **Files:** `backend.py` (new `save_draft_to_imap()`), `server.py` (new `/api/save-draft`), `templates/index.html` (button + success state)
 
-### Rules Editor in UI
+- [ ] **Re-categorize / correction UI + few-shot learning** *(1 day)*
+  - Click category badge on any email → dropdown with all canonical categories
+  - On change: `POST /api/correct` → writes to new `corrections` table `(email_id, old_category, new_category, corrected_at)`
+  - Before each `analyze_email()` call: fetch last 5 corrections, inject into system prompt as `"Examples of user corrections: [subject → category]"`
+  - **Files:** `database.py` (corrections table + `get_recent_corrections()`), `backend.py` (inject into prompt), `server.py` (`/api/correct`), `templates/index.html` (dropdown UI)
 
-- [ ] **Make category→action rules editable in the Settings tab**
-  - Currently only editable by hand-editing `config.yaml`
-  - Add a grid/table: category | action dropdown (flag, mark_read, delete, no_action)
-  - Save button updates config
-  - **Files:** `app.py` (Settings tab, ~line 497)
+- [ ] **VIP / sender rules** *(half day)*
+  - New `sender_rules` table: `(pattern, action, priority_boost, category_override)`
+  - Pattern can be full email or domain (`@company.com`)
+  - Applied after LLM analysis: boost priority, override category, force-flag
+  - Settings page: simple list editor (sender pattern + rule)
+  - **Files:** `database.py`, `backend.py` (apply after `normalize_category`), `server.py` (CRUD endpoints), `templates/index.html` (Settings panel)
 
-### Error Recovery
+### Week 2 — Productization
 
-- [ ] **Track failed emails and allow retry**
-  - Store failed email UIDs + error reason in DB or session state
-  - Show "Failed Emails" section in dashboard with retry button
-  - Failed emails should NOT be marked as seen (Phase 1 fix enables this)
-  - **Files:** `backend.py`, `app.py`
+- [ ] **Keyboard shortcuts** *(1 day)*
+  - `j`/`k` — navigate emails, `e` — archive, `#` — delete, `r` — reply, `c` — re-categorize, `/` — focus search, `g b`/`g a`/`g s` — go to Briefing/Archive/Settings, `cmd+enter` — run triage
+  - Hotkeys shown on `?` overlay
+  - **Files:** `templates/index.html` (vanilla JS keydown listener)
 
-### Desktop Notifications
+- [ ] **Server-Sent Events for triage progress** *(half day)*
+  - Replace 1.5s polling with `GET /api/triage/stream` returning SSE
+  - Emit per-email updates: `data: {"progress": 3, "total": 50, "current": "Invoice from Strato"}\n\n`
+  - Frontend shows live progress bar + current email subject
+  - **Files:** `server.py` (SSE endpoint), `backend.py` (progress callback), `templates/index.html` (EventSource)
 
-- [ ] **Notify user on priority 4-5 emails**
-  - Use `plyer` or native macOS `osascript` for desktop notifications
-  - Only fire after triage run completes, if high-priority emails were found
-  - Configurable: on/off in settings
-  - **New dependency:** `plyer` (or use subprocess for macOS native)
-  - **Files:** `backend.py` (after processing), `app.py` (settings toggle)
+- [ ] **Menu bar app (`rumps` wrapper)** *(1 day)*
+  - `rumps` menu bar icon with live badge count (urgent emails)
+  - Menu items: Open Briefing, Run Triage Now, Pause/Resume, Quit
+  - Runs `server.py` as subprocess; auto-starts on login via `launchctl` plist
+  - **New files:** `menubar.py`, `com.user.ai-email-assistant.plist`
+  - **New dep:** `rumps`
+
+- [ ] **API key entry in Settings UI** *(2 hours)*
+  - Regression from the Streamlit→Flask pivot — new UI has no way to enter keys
+  - Per-provider password field in Settings → writes to `~/.config/ai-email-assistant/.env`
+  - Show green check next to providers with keys set (don't reveal the key)
+  - **Files:** `server.py` (`/api/settings/api-key`), `templates/index.html` (Settings panel)
+
+- [ ] **Fix Phase 1.5 regressions** *(half day)*
+  - Close out the critical items above (`debug=False`, `_triage` persistence, YAML fix, delete `app.py`)
 
 ---
 
-## Phase 3 — Intelligent Assistant
+## Phase 3 — Beyond Daily Driver
 
-**Goal:** Evolve from a categorizer into an actual email assistant.
-**Effort:** ~1-2 weeks
-**Prerequisite:** Phase 2 complete (especially DB)
+### Workflow Completeness
 
-### Draft Reply Generation
+- [ ] **SMTP send** — direct send of drafts with confirmation, not just save-to-drafts
+- [ ] **Snooze** — "remind me tomorrow 9am", resurfaces in the briefing at that time
+- [ ] **Bulk actions** — select many, archive/delete/move in one go (10s undo toast)
+- [ ] **Archive** (vs. delete) — move to user's Archive folder, don't purge
+- [ ] **Conversation threading** — group by `In-Reply-To` / `References`, thread-level summary
 
-- [ ] **Add LLM-powered draft replies**
-  - New button on each email card: "Draft Reply"
-  - LLM generates a reply based on email content + user-configurable tone/style
-  - Draft shown in an editable text area
-  - Save to IMAP Drafts folder via IMAP APPEND
-  - **New system prompt:** separate prompt for reply generation (different from categorization)
-  - **Files:** `llm_providers.py` (new method `generate_reply()`), `backend.py` (IMAP draft save), `app.py` (reply UI)
+### Intelligence
 
-### SMTP Integration
+- [ ] **Failed email retry queue** — surface skipped emails with retry button + error reason
+- [ ] **Category editor** — add/remove/rename canonical categories from UI (regenerates the prompt)
+- [ ] **Tone presets for drafts** — Professional / Warm / Terse / Match-sender's-tone
+- [ ] **Cost / usage tracking** — per-provider token counts, daily spend estimate
 
-- [ ] **Send emails directly from the app**
-  - Configure SMTP server per account (often same host as IMAP)
-  - Send drafted replies
-  - Confirmation step before sending
-  - **New file:** `smtp_handler.py`
-  - **Modified:** `config.yaml` (smtp_server per account), `app.py` (send button)
+### Polish
 
-### Smart Sender Recognition
-
-- [ ] **VIP / known sender list**
-  - User maintains a list of important senders (or auto-detect from "Personal" category)
-  - VIP emails always get priority boost
-  - Visual indicator in dashboard
-  - **Files:** `config.yaml` (vip_senders list), `backend.py` (priority adjustment), `app.py` (VIP badge)
-
-### Adaptive Learning
-
-- [ ] **Learn from user corrections**
-  - If user re-categorizes an email in the UI, store the correction
-  - Feed corrections into future LLM prompts as few-shot examples
-  - Track accuracy over time
-  - **Requires:** Phase 2 DB for storing corrections
-  - **Files:** `database.py` (corrections table), `backend.py` (inject examples into prompt), `app.py` (re-categorize UI)
-
-### Conversation Threading
-
-- [ ] **Group related emails into threads**
-  - Use `In-Reply-To` and `References` headers from IMAP
-  - Display as collapsible thread in dashboard
-  - Thread-level summary (summarize entire conversation, not just latest email)
-  - **Files:** `backend.py` (header extraction), `database.py` (thread_id column), `app.py` (thread view)
+- [ ] **Dark mode** — CSS variable swap + persisted toggle
+- [ ] **Rules editor in UI** — category→action mappings (currently YAML-only)
+- [ ] **Progressive onboarding** — first-run wizard (add account → enter API key → test connection → run first triage)
+- [ ] **Empty-state CTAs** — "No briefings yet" → big "Run your first triage" button
 
 ---
 
 ## Phase 4 — Production Polish
 
-**Goal:** Make it deployable, maintainable, and robust.
-**Effort:** ~1 week
-**Prerequisite:** Core features stable
-
 ### SDK & Dependency Updates
 
-- [ ] **Migrate Gemini to `google.genai` SDK**
-  - `google-generativeai` is deprecated. Replace with `google-genai`.
-  - Update `GeminiProvider` class, test thinking_level support.
-  - **Files:** `llm_providers.py`, `requirements.txt`
-
-- [ ] **Pin dependency versions**
-  - Replace `>=` with `==` in requirements.txt for reproducible builds.
-  - Add `requirements-dev.txt` for test dependencies.
+- [ ] **Migrate Gemini to `google.genai`** — `google-generativeai` is deprecated
+- [ ] **Pin dependency versions** — replace `>=` with `==` in `requirements.txt`, add `requirements-dev.txt`
 
 ### Testing
 
-- [ ] **Add pytest test suite**
-  - `tests/test_normalize_category.py` — exhaustive category fuzzy matching tests
-  - `tests/test_clean_email_body.py` — HTML stripping, truncation, edge cases
-  - `tests/test_apply_rules.py` — mock IMAP, verify flag/mark_read calls
-  - `tests/test_llm_providers.py` — mock API responses, verify JSON parsing
-  - `tests/test_briefing.py` — markdown generation, prepend logic
-  - `tests/test_config.py` — load/save roundtrip, multiline string preservation
-  - **New files:** `tests/` directory, `conftest.py` with fixtures
-  - **New dependency:** `pytest`, `pytest-mock`
+- [ ] **pytest suite** in `tests/`
+  - `test_normalize_category.py` — exhaustive fuzzy matching
+  - `test_clean_email_body.py` — HTML stripping, truncation, edge cases
+  - `test_apply_rules.py` — mock IMAP, verify flag/mark_read calls
+  - `test_llm_providers.py` — mock API responses, verify JSON + error paths
+  - `test_database.py` — CRUD roundtrips, upsert on `uid+account`
+  - `test_config.py` — load/save preserves multiline `system_prompt`
+  - `test_server.py` — Flask test client for endpoints
+  - **New deps:** `pytest`, `pytest-mock`
 
 ### Deployment
 
-- [ ] **Dockerfile + docker-compose.yml**
-  - Single container: Streamlit app + scheduler
-  - Volume mounts for `.env`, `config.yaml`, DB file
-  - Health check endpoint
+- [ ] **Proper daemon** — `launchctl` plist for macOS, `systemd` unit for Linux. No more "keep terminal open"
+- [ ] **App packaging** — PyInstaller or py2app `.app` bundle, one double-click install
+- [ ] **Optional Docker** — `Dockerfile` + `docker-compose.yml` with volume mounts
+- [ ] **CI/CD** — GitHub Actions: ruff + pytest on PR, release build on tag
 
-- [ ] **CI/CD with GitHub Actions**
-  - Run tests on push
-  - Lint with ruff
-  - Build Docker image on tag
+### Security
 
-### Security Improvements
-
-- [ ] **OAuth2 for Gmail**
-  - Replace app passwords with proper OAuth2 flow
-  - Store refresh tokens encrypted
-  - **New file:** `oauth_handler.py`
-
-- [ ] **Encrypt stored credentials**
-  - Encrypt `.env` values at rest using `cryptography.fernet`
-  - Decrypt on load with a master password or OS keychain
+- [ ] **Replace Flask debug server** — `waitress` (pure Python, easy) or `gunicorn`
+- [ ] **OAuth2 for Gmail** — app passwords are being phased out
+- [ ] **Encrypt stored credentials** — `cryptography.fernet` + macOS Keychain master key
+- [ ] **CSRF tokens** — if the Flask server ever gets exposed beyond localhost
+- [ ] **Bind to `127.0.0.1` only** — verify server.py doesn't listen on 0.0.0.0
 
 ### Rate Limit Handling
 
-- [ ] **Track API usage per provider**
-  - Count tokens/requests per provider per day
-  - Warn in UI when approaching limits
-  - Auto-fallback to secondary provider when primary is exhausted
-  - **Files:** `llm_providers.py` (usage tracking), `app.py` (usage display), `config.yaml` (fallback_provider)
+- [ ] **Per-provider token/request tracking** — warn in UI when approaching limits
+- [ ] **Automatic provider fallback** — primary exhausted → switch to secondary for the run
 
 ---
 
 ## Non-Goals (Explicitly Out of Scope)
 
-These are things we're **not** building:
-- **Multi-user / auth system** — this is a personal tool, not SaaS
-- **Mobile app** — Streamlit is desktop-first, and that's fine
-- **Real-time push notifications from IMAP IDLE** — polling on a schedule is good enough
-- **Email client replacement** — this is a triage/assistant layer, not a full client
-- **Custom ML model training** — we use LLM APIs, not local models
+- **Multi-user / auth system** — personal tool, not SaaS
+- **Full email client replacement** — this is a triage/assistant layer; user still lives in Apple Mail / Gmail for compose + send + search
+- **IMAP IDLE real-time push** — scheduler polling is good enough; IDLE adds state-machine complexity for marginal benefit
+- **Custom ML model training** — LLM APIs are sufficient
+- **Mobile-native app** — responsive web is good enough; if it becomes necessary, wrap the PWA
 
 ---
 
@@ -246,8 +232,11 @@ These are things we're **not** building:
 
 | Date | Decision | Rationale |
 |---|---|---|
-| 2026-03-31 | File-based storage → SQLite (Phase 2) | Briefing markdown doesn't support search/filter, grows unbounded |
+| 2026-03-31 | File-based storage → SQLite | Briefing markdown doesn't support search/filter, grows unbounded |
 | 2026-03-31 | APScheduler over cron | Keeps everything in-process, configurable from UI |
-| 2026-03-31 | Fix bugs before features | mark_seen bug can lose emails — can't build on a broken foundation |
-| 2026-03-31 | Keep Streamlit (no framework switch) | Good enough for personal use, rewriting UI is waste of time |
+| 2026-03-31 | Fix bugs before features | `mark_seen` bug could lose emails — can't build on broken foundation |
 | 2026-03-31 | No multi-user auth | Personal tool, complexity not justified |
+| 2026-04-10 | **Streamlit → Flask + vanilla HTML/JS** | Streamlit's re-run model makes real interactivity painful; custom frontend gives full design control and better perf. Accepted cost: lose auto-generated widgets, have to hand-build everything |
+| 2026-04-22 | **Prioritize scheduler + notifications + IMAP draft save** | These three unlock "ambient assistant" UX — without them, the app is a batch report on demand |
+| 2026-04-22 | **Re-categorize + few-shot corrections before more LLM features** | Trust is the binding constraint — users abandon assistants that misclassify without a fix loop |
+| 2026-04-22 | **Menu bar app via `rumps`** over Electron / webview wrappers | Minimal deps, native macOS feel, Python-only toolchain |
