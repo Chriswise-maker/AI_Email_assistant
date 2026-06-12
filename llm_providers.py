@@ -4,12 +4,18 @@ Defines the abstract base class and concrete implementations for different LLM p
 """
 
 from abc import ABC, abstractmethod
+from typing import Optional
 import os
 import json
 from groq import Groq
 from openai import OpenAI  # DeepSeek is OpenAI-compatible
 import google.generativeai as genai
 import anthropic
+
+_DRAFT_SYSTEM = (
+    "You are an email assistant. Draft a clear, professional reply based on the email context provided. "
+    "Return only the reply body text — no subject line, no 'Subject:' prefix."
+)
 
 class LLMProvider(ABC):
     last_error: str = ""
@@ -28,6 +34,11 @@ class LLMProvider(ABC):
             dict: The analysis result (category, priority, summary), or None on failure.
                   On failure, self.last_error contains the error message.
         """
+        pass
+
+    @abstractmethod
+    def draft_reply(self, email_context: str, instruction: str, model: str) -> Optional[str]:
+        """Draft an email reply. Returns reply text, or None on failure."""
         pass
 
 class GroqProvider(LLMProvider):
@@ -50,6 +61,22 @@ class GroqProvider(LLMProvider):
         except Exception as e:
             self.last_error = f"Groq API Error: {e}"
             print(self.last_error)
+            return None
+
+    def draft_reply(self, email_context: str, instruction: str, model: str) -> Optional[str]:
+        try:
+            response = self.client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": _DRAFT_SYSTEM},
+                    {"role": "user", "content": f"Email:\n{email_context}\n\nInstruction: {instruction}"},
+                ],
+                temperature=0.6,
+                max_tokens=1024,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            self.last_error = f"Groq API Error: {e}"
             return None
 
 class DeepSeekProvider(LLMProvider):
@@ -81,6 +108,22 @@ class DeepSeekProvider(LLMProvider):
         except Exception as e:
             self.last_error = f"DeepSeek API Error: {e}"
             print(self.last_error)
+            return None
+
+    def draft_reply(self, email_context: str, instruction: str, model: str) -> Optional[str]:
+        try:
+            response = self.client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": _DRAFT_SYSTEM},
+                    {"role": "user", "content": f"Email:\n{email_context}\n\nInstruction: {instruction}"},
+                ],
+                temperature=0.6,
+                max_tokens=1024,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            self.last_error = f"DeepSeek API Error: {e}"
             return None
 
 class GeminiProvider(LLMProvider):
@@ -118,6 +161,21 @@ class GeminiProvider(LLMProvider):
             print(self.last_error)
             return None
 
+    def draft_reply(self, email_context: str, instruction: str, model: str) -> Optional[str]:
+        try:
+            model_instance = genai.GenerativeModel(
+                model,
+                generation_config={"temperature": 0.6, "max_output_tokens": 1024},
+                system_instruction=_DRAFT_SYSTEM,
+            )
+            response = model_instance.generate_content(
+                f"Email:\n{email_context}\n\nInstruction: {instruction}"
+            )
+            return response.text.strip()
+        except Exception as e:
+            self.last_error = f"Gemini API Error: {e}"
+            return None
+
 class ClaudeProvider(LLMProvider):
     def __init__(self, api_key: str, thinking_level: str = "medium"):
         self.client = anthropic.Anthropic(api_key=api_key)
@@ -134,11 +192,11 @@ class ClaudeProvider(LLMProvider):
                 ],
             }
 
-            # If thinking_level is medium or high, pass thinking params.
-            # Let the API reject if the model doesn't support it.
+            # Extended thinking: budget_tokens controls depth, max_tokens must exceed it.
             if self.thinking_level in ("medium", "high"):
-                params["thinking"] = {"type": "adaptive"}
-                params["effort"] = self.thinking_level
+                budget = 8000 if self.thinking_level == "medium" else 16000
+                params["thinking"] = {"type": "enabled", "budget_tokens": budget}
+                params["max_tokens"] = budget + 2048  # room for thinking + output
 
             response = self.client.messages.create(**params)
 
@@ -161,6 +219,21 @@ class ClaudeProvider(LLMProvider):
         except Exception as e:
             self.last_error = f"Claude API Error: {e}"
             print(self.last_error)
+            return None
+
+    def draft_reply(self, email_context: str, instruction: str, model: str) -> Optional[str]:
+        try:
+            response = self.client.messages.create(
+                model=model,
+                max_tokens=1024,
+                system=_DRAFT_SYSTEM,
+                messages=[
+                    {"role": "user", "content": f"Email:\n{email_context}\n\nInstruction: {instruction}"},
+                ],
+            )
+            return response.content[0].text.strip()
+        except Exception as e:
+            self.last_error = f"Claude API Error: {e}"
             return None
 
 def get_provider(provider_name: str, api_key: str, config: dict = None) -> LLMProvider:

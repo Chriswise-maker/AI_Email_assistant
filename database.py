@@ -40,6 +40,7 @@ def init_db() -> None:
             action TEXT,
             run_id TEXT NOT NULL,
             processed_at TEXT NOT NULL,
+            email_date TEXT,
             dry_run INTEGER DEFAULT 0
         )
     """)
@@ -54,12 +55,32 @@ def init_db() -> None:
             model TEXT
         )
     """)
+    # Migrate existing DBs: add email_date column if missing
+    cursor = conn.execute("PRAGMA table_info(emails)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if "email_date" not in columns:
+        conn.execute("ALTER TABLE emails ADD COLUMN email_date TEXT")
+
+    # Deduplicate: unique constraint on (uid, account) so re-processing
+    # the same email doesn't create duplicate rows.
+    # Clean up pre-existing duplicates first (keep the newest row per uid+account).
+    try:
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_emails_uid_account ON emails(uid, account)")
+    except sqlite3.IntegrityError:
+        conn.execute("""
+            DELETE FROM emails WHERE id NOT IN (
+                SELECT MAX(id) FROM emails GROUP BY uid, account
+            )
+        """)
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_emails_uid_account ON emails(uid, account)")
+
     # Indexes for common queries
     conn.execute("CREATE INDEX IF NOT EXISTS idx_emails_run_id ON emails(run_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_emails_category ON emails(category)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_emails_priority ON emails(priority)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_emails_account ON emails(account)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_emails_processed_at ON emails(processed_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_emails_email_date ON emails(email_date)")
     conn.commit()
     conn.close()
 
@@ -99,15 +120,16 @@ def save_email(
     summary: str,
     action: str,
     dry_run: bool = False,
+    email_date: str = "",
 ) -> None:
     """Save a single processed email to the database."""
     conn = _get_connection()
     conn.execute(
-        """INSERT INTO emails
-           (uid, account, sender, subject, category, priority, summary, action, run_id, processed_at, dry_run)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        """INSERT OR REPLACE INTO emails
+           (uid, account, sender, subject, category, priority, summary, action, run_id, processed_at, email_date, dry_run)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (uid, account, sender, subject, category, priority, summary, action, run_id,
-         datetime.datetime.now().isoformat(), 1 if dry_run else 0),
+         datetime.datetime.now().isoformat(), email_date, 1 if dry_run else 0),
     )
     conn.commit()
     conn.close()
@@ -127,7 +149,7 @@ def get_emails_for_run(run_id: str) -> list[dict]:
     """Get all emails from a specific triage run."""
     conn = _get_connection()
     rows = conn.execute(
-        "SELECT * FROM emails WHERE run_id = ? ORDER BY priority DESC, category",
+        "SELECT * FROM emails WHERE run_id = ? ORDER BY priority DESC, COALESCE(email_date, processed_at) DESC, category",
         (run_id,),
     ).fetchall()
     conn.close()
@@ -184,11 +206,27 @@ def search_emails(
 
     conn = _get_connection()
     rows = conn.execute(
-        f"SELECT * FROM emails WHERE {where} ORDER BY processed_at DESC LIMIT ?",
+        f"SELECT * FROM emails WHERE {where} ORDER BY COALESCE(email_date, processed_at) DESC LIMIT ?",
         params,
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def get_email_by_id(email_id: int) -> Optional[dict]:
+    """Get a single email by its database ID."""
+    conn = _get_connection()
+    row = conn.execute("SELECT * FROM emails WHERE id = ?", (email_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def delete_email(email_id: int) -> None:
+    """Remove an email record from the database."""
+    conn = _get_connection()
+    conn.execute("DELETE FROM emails WHERE id = ?", (email_id,))
+    conn.commit()
+    conn.close()
 
 
 def get_stats() -> dict:
