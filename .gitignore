@@ -3,3 +3,6 @@ venv/
 __pycache__/
 .DS_Store
 daily_briefing.md
+emails.db
+debug_logs.json
+.claude/

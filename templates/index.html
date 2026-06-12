@@ -1,0 +1,1622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Briefing</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@400,0&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;1,6..72,300;1,6..72,400&family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,700&family=Work+Sans:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f5f7f9;
+    --bg-card: #ffffff;
+    --text: #1a1a1a;
+    --text-2: #504440;
+    --text-3: #837470;
+    --border: #d5c3be;
+    --border-light: #e8e0dd;
+    --ink: #1a1a1a;
+    --ink-light: #d5c3be;
+    --primary: #785347;
+    --warm: #A0776A;
+    --warm-pale: #ffdbd0;
+    --rail-w: 56px;
+    --shadow-card: 0 20px 40px rgba(25,28,30,0.06);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Work Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.55;
+  }
+
+  .material-symbols-outlined {
+    font-family: 'Material Symbols Outlined';
+    font-weight: normal;
+    font-style: normal;
+    font-size: 20px;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    direction: ltr;
+    -webkit-font-smoothing: antialiased;
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  }
+
+  /* === RAIL === */
+  .rail {
+    position: fixed;
+    left: 0; top: 0; bottom: 0;
+    width: var(--rail-w);
+    background: #eceef0;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 0 16px;
+    z-index: 100;
+    animation: railIn 0.4s ease-out;
+  }
+
+  @keyframes railIn {
+    from { transform: translateX(-100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+
+  .rail-top {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .rail-brand {
+    font-family: 'Fraunces', serif;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--primary);
+    margin-bottom: 16px;
+  }
+
+  .rail-link {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    position: relative;
+    color: var(--text-3);
+    border-left: 2px solid transparent;
+  }
+
+  .rail-link:hover { background: var(--bg-card); color: var(--text-2); }
+  .rail-link.active { color: var(--primary); border-left-color: var(--warm); background: rgba(160,119,106,0.08); }
+
+  .rail-link .material-symbols-outlined { font-size: 20px; }
+
+  .rail-tooltip {
+    position: absolute;
+    left: 48px;
+    background: var(--ink);
+    color: #fff;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 11px;
+    padding: 4px 8px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+  }
+
+  .rail-link:hover .rail-tooltip { opacity: 1; }
+
+  .rail-bottom {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .rail-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--warm);
+    opacity: 0.4;
+    animation: pulse 2.5s ease-in-out infinite;
+  }
+
+  .rail-dot.running { opacity: 1; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+  }
+
+  .rail-run {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--ink);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    position: relative;
+  }
+
+  .rail-run:hover { background: #333; }
+  .rail-run .material-symbols-outlined { font-size: 18px; }
+  .rail-run .rail-tooltip { left: 48px; }
+  .rail-run:hover .rail-tooltip { opacity: 1; }
+
+  /* === MAIN === */
+  .main {
+    margin-left: var(--rail-w);
+    padding: 44px clamp(24px, 5vw, 80px) 80px;
+  }
+
+  /* === HEADER === */
+  .hdr {
+    margin-bottom: 40px;
+    animation: up 0.6s ease-out 0.08s both;
+  }
+
+  @keyframes up {
+    from { transform: translateY(10px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+
+  .hdr-meta {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--text-3);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  .hdr-title {
+    font-family: 'Fraunces', serif;
+    font-size: clamp(36px, 5vw, 60px);
+    font-weight: 300;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    color: var(--text);
+    margin-bottom: 16px;
+  }
+
+  .hdr-brief {
+    font-family: 'Newsreader', serif;
+    font-size: clamp(16px, 2vw, 22px);
+    color: var(--text-2);
+    line-height: 1.5;
+    max-width: 640px;
+  }
+
+  .hdr-brief b { color: var(--text); font-weight: 600; }
+  .hdr-brief .accent { color: var(--primary); font-weight: 600; }
+
+  /* === METRICS BAR === */
+  .mbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 40px;
+    padding: 20px 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 48px;
+    animation: up 0.6s ease-out 0.16s both;
+  }
+
+  .m-lbl {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    margin-bottom: 4px;
+  }
+
+  .m-val {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+
+  .m-val.accent { color: var(--primary); }
+
+  /* === SECTION HEADER === */
+  .sec { margin-bottom: 40px; }
+
+  .sec-h {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 20px;
+    animation: up 0.5s ease-out 0.24s both;
+  }
+
+  .sec-label {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.25em;
+    color: var(--text-3);
+    white-space: nowrap;
+  }
+
+  .sec-rule {
+    flex: 1;
+    height: 1px;
+    background: var(--border-light);
+  }
+
+  /* === ATTENTION CARDS (grid) === */
+  .acard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+  }
+
+  .acard {
+    position: relative;
+    background: var(--bg-card);
+    padding: 28px 24px 24px;
+    box-shadow: var(--shadow-card);
+    cursor: pointer;
+    transition: box-shadow 0.15s;
+    animation: up 0.4s ease-out both;
+    overflow: hidden;
+  }
+
+  .acard:nth-child(1) { animation-delay: 0.28s; }
+  .acard:nth-child(2) { animation-delay: 0.32s; }
+  .acard:nth-child(3) { animation-delay: 0.36s; }
+
+  .acard:hover { box-shadow: 0 24px 48px rgba(25,28,30,0.1); }
+
+  .acard-flag {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: var(--primary);
+  }
+
+  .acard-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 16px;
+  }
+
+  .acard-meta {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--text-3);
+    letter-spacing: 0.05em;
+  }
+
+  .acard-icon {
+    color: var(--warm);
+    font-size: 22px;
+    font-variation-settings: 'FILL' 1, 'wght' 400;
+  }
+
+  .acard-title {
+    font-family: 'Fraunces', serif;
+    font-size: 20px;
+    font-weight: 400;
+    color: var(--text);
+    margin-bottom: 10px;
+    line-height: 1.25;
+    transition: color 0.12s;
+  }
+
+  .acard:hover .acard-title { color: var(--primary); }
+
+  .acard-body {
+    font-size: 13.5px;
+    color: var(--text-2);
+    line-height: 1.6;
+    margin-bottom: 16px;
+  }
+
+  .acard .e-tag {
+    display: inline-block;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: var(--border-light);
+    color: var(--text-2);
+  }
+
+  .acard .e-tag.w { background: var(--warm-pale); color: var(--primary); }
+
+  .acard .e-detail {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease, opacity 0.2s ease;
+    opacity: 0;
+  }
+
+  .acard.open .e-detail,
+  .lrow.open .e-detail {
+    max-height: 600px;
+    opacity: 1;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-light);
+  }
+
+  .e-detail-text {
+    font-size: 13px;
+    color: var(--text-2);
+    line-height: 1.6;
+  }
+
+  .e-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .abtn {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text-2);
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    transition: all 0.12s ease;
+  }
+
+  .abtn:hover { border-color: var(--primary); color: var(--primary); }
+
+  .abtn.dk {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+  }
+
+  .abtn.dk:hover { background: #603e34; border-color: #603e34; }
+  .abtn.danger { border-color: #c44; color: #c44; }
+  .abtn.danger:hover { background: #c44; color: #fff; }
+
+  /* === REPLY PANEL === */
+  .reply-panel {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-light);
+  }
+
+  .reply-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .reply-row input {
+    flex: 1;
+    font-family: 'Work Sans', sans-serif;
+    font-size: 13px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    outline: none;
+  }
+
+  .reply-row input:focus { border-color: var(--warm); }
+
+  .reply-result {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    background: var(--bg);
+    border: 1px solid var(--border-light);
+    padding: 12px;
+    white-space: pre-wrap;
+    line-height: 1.6;
+    color: var(--text-2);
+    position: relative;
+  }
+
+  .copy-btn {
+    position: absolute;
+    top: 6px; right: 6px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 10px;
+    padding: 3px 8px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-3);
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .copy-btn:hover { color: var(--primary); border-color: var(--primary); }
+
+  /* === NOTED ROWS === */
+  .nlist { display: flex; flex-direction: column; }
+
+  .nrow {
+    display: flex;
+    align-items: flex-start;
+    gap: 24px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border-light);
+    animation: up 0.4s ease-out both;
+  }
+
+  .nrow:nth-child(1) { animation-delay: 0.32s; }
+  .nrow:nth-child(2) { animation-delay: 0.36s; }
+  .nrow:nth-child(3) { animation-delay: 0.40s; }
+
+  .nrow:last-child { border-bottom: none; }
+
+  .nrow-who {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    width: 100px;
+    flex-shrink: 0;
+    padding-top: 3px;
+  }
+
+  .nrow-body { flex: 1; min-width: 0; }
+
+  .nrow-subj {
+    font-family: 'Newsreader', serif;
+    font-size: 17px;
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: 4px;
+    line-height: 1.3;
+  }
+
+  .nrow-sum {
+    font-size: 13px;
+    color: var(--text-2);
+    line-height: 1.55;
+  }
+
+  .nrow-icon {
+    color: var(--border);
+    font-size: 20px;
+    padding-top: 2px;
+    flex-shrink: 0;
+  }
+
+  /* === LOG ROWS (quiet) === */
+  .qsec {
+    margin-top: 40px;
+    animation: up 0.5s ease-out 0.48s both;
+  }
+
+  .q-list { display: flex; flex-direction: column; }
+
+  .lrow {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border-light);
+    cursor: pointer;
+    animation: up 0.3s ease-out both;
+  }
+
+  .lrow:nth-child(1) { animation-delay: 0.52s; }
+  .lrow:nth-child(2) { animation-delay: 0.55s; }
+  .lrow:nth-child(3) { animation-delay: 0.58s; }
+  .lrow:nth-child(4) { animation-delay: 0.61s; }
+  .lrow:nth-child(5) { animation-delay: 0.64s; }
+  .lrow:nth-child(6) { animation-delay: 0.67s; }
+
+  .lrow:last-child { border-bottom: none; }
+
+  .lrow-time {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--text-3);
+    width: 44px;
+    flex-shrink: 0;
+  }
+
+  .lrow-who {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text);
+    width: 120px;
+    flex-shrink: 0;
+  }
+
+  .lrow-what {
+    font-size: 13.5px;
+    color: var(--text-2);
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .lrow-arrow {
+    font-size: 14px;
+    color: var(--border);
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+
+  .lrow:hover .lrow-arrow { opacity: 1; }
+  .lrow:hover .lrow-who { color: var(--primary); }
+
+  .q-toggle {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-3);
+    cursor: pointer;
+    text-decoration: none;
+    transition: color 0.12s;
+    white-space: nowrap;
+  }
+
+  .q-toggle:hover { color: var(--text-2); }
+
+  /* === FOOTER === */
+  .foot {
+    margin-top: 48px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-light);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-3);
+    animation: up 0.5s ease-out 0.75s both;
+  }
+
+  /* === PAGES === */
+  .pg { display: none; }
+  .pg.on { display: block; }
+
+  /* === EMPTY STATE === */
+  .empty {
+    text-align: center;
+    padding: 64px 20px;
+    color: var(--text-3);
+    animation: up 0.5s ease-out 0.2s both;
+  }
+
+  .empty-title {
+    font-family: 'Fraunces', serif;
+    font-size: 24px;
+    font-weight: 300;
+    color: var(--text-2);
+    margin-bottom: 8px;
+  }
+
+  .empty-sub { font-size: 14px; }
+
+  /* === ARCHIVE === */
+  .sbar {
+    margin-bottom: 24px;
+    animation: up 0.5s ease-out 0.12s both;
+    position: relative;
+  }
+
+  .sbar .material-symbols-outlined {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 18px;
+    color: var(--text-3);
+  }
+
+  .sbar input {
+    width: 100%;
+    font-family: 'Work Sans', sans-serif;
+    font-size: 14px;
+    padding: 10px 14px 10px 42px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text);
+    outline: none;
+    transition: border 0.12s;
+  }
+
+  .sbar input::placeholder { color: var(--text-3); }
+  .sbar input:focus { border-color: var(--warm); }
+
+  .a-row {
+    display: flex;
+    align-items: baseline;
+    padding: 13px 0;
+    border-bottom: 1px solid var(--border-light);
+    font-size: 14px;
+    cursor: pointer;
+    animation: up 0.4s ease-out both;
+    transition: background 0.12s;
+  }
+
+  .a-row:nth-child(1) { animation-delay: 0.18s; }
+  .a-row:nth-child(2) { animation-delay: 0.22s; }
+  .a-row:nth-child(3) { animation-delay: 0.26s; }
+  .a-row:nth-child(4) { animation-delay: 0.30s; }
+
+  .a-row:hover .a-name { color: var(--primary); }
+
+  .a-date {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--text-3);
+    width: 72px;
+    flex-shrink: 0;
+  }
+
+  .a-name { color: var(--text); flex: 1; font-weight: 500; }
+
+  .a-stats {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-3);
+  }
+
+  /* Search results */
+  .sr-row {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border-light);
+    animation: up 0.3s ease-out both;
+  }
+
+  .sr-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 2px;
+  }
+
+  .sr-sender { font-size: 14px; font-weight: 600; color: var(--text); }
+
+  .sr-date {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-3);
+    flex-shrink: 0;
+  }
+
+  .sr-subj { font-size: 14px; color: var(--text); margin-bottom: 2px; }
+  .sr-sum { font-size: 13px; color: var(--text-2); line-height: 1.5; }
+
+  /* === SETTINGS === */
+  .sblk { margin-bottom: 32px; animation: up 0.5s ease-out both; }
+  .sblk:nth-child(1) { animation-delay: 0.12s; }
+  .sblk:nth-child(2) { animation-delay: 0.20s; }
+  .sblk:nth-child(3) { animation-delay: 0.28s; }
+
+  .sblk-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.25em;
+    color: var(--text-3);
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4px;
+  }
+
+  .s-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border-light);
+  }
+
+  .s-row:last-child { border-bottom: none; }
+  .s-name { font-size: 14px; font-weight: 500; color: var(--text); }
+  .s-sub { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+  .s-val { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text-2); }
+
+  .tog {
+    width: 36px;
+    height: 20px;
+    background: var(--ink-light);
+    border-radius: 10px;
+    position: relative;
+    cursor: pointer;
+    transition: background 0.2s;
+    flex-shrink: 0;
+  }
+
+  .tog.on { background: var(--warm); }
+
+  .tog::after {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    background: white;
+    border-radius: 50%;
+    top: 2px; left: 2px;
+    transition: transform 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  }
+
+  .tog.on::after { transform: translateX(16px); }
+
+  /* === MODEL SELECTOR === */
+  .model-select {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--text);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    cursor: pointer;
+    outline: none;
+    transition: border 0.12s;
+    min-width: 240px;
+  }
+
+  .model-select:focus { border-color: var(--warm); }
+
+  .model-saved {
+    font-size: 11px;
+    color: var(--warm);
+    font-family: 'IBM Plex Mono', monospace;
+    margin-left: 8px;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .model-saved.show { opacity: 1; }
+
+  /* === TRIAGE OVERLAY === */
+  .triage-overlay {
+    position: fixed; inset: 0;
+    background: rgba(245,247,249,0.9);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 200;
+    backdrop-filter: blur(6px);
+  }
+
+  .spinner {
+    width: 28px; height: 28px;
+    border: 2.5px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 12px;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .triage-overlay-text { font-size: 13px; color: var(--text-2); text-align: center; }
+
+  /* === FAB (mobile run) === */
+  .fab {
+    display: none;
+    position: fixed;
+    bottom: 80px;
+    right: 20px;
+    width: 52px; height: 52px;
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    align-items: center; justify-content: center;
+    box-shadow: 0 8px 24px rgba(120,83,71,0.35);
+    z-index: 40;
+    transition: transform 0.12s;
+  }
+
+  .fab:active { transform: scale(0.94); }
+  .fab .material-symbols-outlined { font-size: 22px; }
+
+  /* === RESPONSIVE === */
+  @media (max-width: 640px) {
+    .rail {
+      top: auto; bottom: 0; left: 0; right: 0;
+      width: 100%; height: 52px;
+      flex-direction: row;
+      border-right: none;
+      border-top: 1px solid var(--border);
+      padding: 0 16px;
+      background: rgba(236,238,240,0.95);
+      backdrop-filter: blur(16px);
+    }
+    .rail-top { flex-direction: row; gap: 4px; }
+    .rail-brand { display: none; }
+    .rail-link { border-left: none; border-bottom: 2px solid transparent; }
+    .rail-link.active { border-left: none; border-bottom-color: var(--warm); }
+    .rail-bottom { flex-direction: row; }
+    .rail-dot { display: none; }
+    .rail-run { display: none; }
+    .rail-tooltip { display: none; }
+    .fab { display: flex; }
+    .main { margin-left: 0; padding: 24px 18px 80px; }
+    .hdr-title { font-size: 32px; }
+    .mbar { gap: 24px; }
+    .acard-grid { grid-template-columns: 1fr; }
+    .nrow-who { width: 70px; }
+    .lrow-who { width: 80px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- RAIL -->
+<div class="rail">
+  <div class="rail-top">
+    <div class="rail-brand">B</div>
+    <div class="rail-link active" data-page="briefing">
+      <span class="material-symbols-outlined">today</span>
+      <span class="rail-tooltip">Today</span>
+    </div>
+    <div class="rail-link" data-page="archive">
+      <span class="material-symbols-outlined">inventory_2</span>
+      <span class="rail-tooltip">Archive</span>
+    </div>
+    <div class="rail-link" data-page="settings">
+      <span class="material-symbols-outlined">settings</span>
+      <span class="rail-tooltip">Settings</span>
+    </div>
+  </div>
+  <div class="rail-bottom">
+    <div class="rail-dot" id="statusDot"></div>
+    <button class="rail-run" id="btnRun" onclick="runTriage()">
+      <span class="material-symbols-outlined">play_arrow</span>
+      <span class="rail-tooltip">Run triage</span>
+    </button>
+  </div>
+</div>
+
+<!-- FAB (mobile) -->
+<button class="fab" onclick="runTriage()">
+  <span class="material-symbols-outlined">edit_note</span>
+</button>
+
+<!-- TRIAGE OVERLAY -->
+<div class="triage-overlay" id="triageOverlay" style="display:none">
+  <div style="text-align:center">
+    <div class="spinner" id="triageSpinner"></div>
+    <div class="triage-overlay-text" id="triageText">Processing emails&hellip;</div>
+    <button class="abtn dk" id="triageDismiss" style="display:none;margin-top:16px" onclick="dismissTriage()">OK</button>
+  </div>
+</div>
+
+<!-- CONTENT -->
+<div class="main">
+
+  <!-- ============ BRIEFING PAGE ============ -->
+  <div class="pg on" id="pg-briefing">
+    <div class="hdr">
+      <div class="hdr-meta" id="briefDate"></div>
+      <h1 class="hdr-title">Your Briefing</h1>
+      <p class="hdr-brief" id="briefSummary"></p>
+    </div>
+
+    <div class="mbar" id="metricsBar">
+      <div><div class="m-lbl">Processed</div><div class="m-val" id="mProcessed">-</div></div>
+      <div><div class="m-lbl">Urgent</div><div class="m-val accent" id="mUrgent">-</div></div>
+      <div><div class="m-lbl">Action items</div><div class="m-val" id="mAction">-</div></div>
+      <div><div class="m-lbl">Per email</div><div class="m-val" id="mSpeed">-</div></div>
+    </div>
+
+    <div class="sec" id="secAttention" style="display:none">
+      <div class="sec-h">
+        <span class="sec-label">Attention Required</span>
+        <div class="sec-rule"></div>
+      </div>
+      <div class="acard-grid" id="attentionList"></div>
+    </div>
+
+    <div class="sec" id="secNoted" style="display:none">
+      <div class="sec-h">
+        <span class="sec-label">Summarised &amp; Noted</span>
+        <div class="sec-rule"></div>
+      </div>
+      <div class="nlist" id="notedList"></div>
+    </div>
+
+    <div class="qsec" id="secQuiet" style="display:none">
+      <div class="sec-h" style="margin-bottom:12px">
+        <span class="sec-label">General Log</span>
+        <div class="sec-rule"></div>
+        <a class="q-toggle" id="quietToggle"></a>
+      </div>
+      <div class="q-list" id="quietList"></div>
+    </div>
+
+    <div class="empty" id="emptyState" style="display:none">
+      <div class="empty-title">No briefings yet</div>
+      <div class="empty-sub">Click the run button to process your inbox.</div>
+    </div>
+
+    <div class="foot" id="briefFoot"></div>
+  </div>
+
+  <!-- ============ ARCHIVE PAGE ============ -->
+  <div class="pg" id="pg-archive">
+    <div class="hdr">
+      <div class="hdr-meta">Archive</div>
+      <h1 class="hdr-title">Past Briefings</h1>
+    </div>
+    <div class="sbar">
+      <span class="material-symbols-outlined">search</span>
+      <input type="text" id="searchInput" placeholder="Search emails, senders, summaries&hellip;">
+    </div>
+    <div id="archiveList"></div>
+    <div id="searchResults" style="display:none"></div>
+  </div>
+
+  <!-- ============ SETTINGS PAGE ============ -->
+  <div class="pg" id="pg-settings">
+    <div class="hdr">
+      <div class="hdr-meta">Configuration</div>
+      <h1 class="hdr-title">Settings</h1>
+    </div>
+    <div id="settingsContent"></div>
+  </div>
+
+</div>
+
+<script>
+// ===========================================================================
+// State
+// ===========================================================================
+let quietExpanded = false;
+const QUIET_PREVIEW = 6;
+const _emails = {};  // id -> email data, for draft-reply
+
+const CATEGORY_ICONS = {
+  'Security': 'priority_high',
+  'Bills & Invoices': 'receipt',
+  'Orders & Shipping': 'local_shipping',
+  'Newsletters': 'feed',
+  'Personal': 'person',
+  'Notifications': 'notifications',
+  'Spam': 'block',
+};
+
+// ===========================================================================
+// Navigation
+// ===========================================================================
+document.querySelectorAll('.rail-link').forEach(el => {
+  el.addEventListener('click', () => {
+    document.querySelectorAll('.rail-link').forEach(l => l.classList.remove('active'));
+    document.querySelectorAll('.pg').forEach(p => p.classList.remove('on'));
+    el.classList.add('active');
+    const page = el.dataset.page;
+    document.getElementById('pg-' + page).classList.add('on');
+    if (page === 'archive') loadArchive();
+    if (page === 'settings') loadSettings();
+  });
+});
+
+// ===========================================================================
+// Briefing
+// ===========================================================================
+async function loadBriefing() {
+  const data = await api('/api/briefing');
+
+  if (!data.run) {
+    document.getElementById('emptyState').style.display = '';
+    document.getElementById('metricsBar').style.display = 'none';
+    document.getElementById('briefFoot').style.display = 'none';
+    document.getElementById('briefDate').textContent = '';
+    document.getElementById('briefSummary').innerHTML = '';
+    return;
+  }
+
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('metricsBar').style.display = '';
+  document.getElementById('briefFoot').style.display = '';
+
+  const s = data.stats;
+  const accounts = (s.accounts || []);
+
+  document.getElementById('briefDate').textContent = data.run.date || '';
+  document.getElementById('briefSummary').innerHTML =
+    `Today's digest includes <b>${s.processed || 0}</b> processed entries. ` +
+    `There are <span class="accent">${s.urgent || 0}</span> items requiring immediate attention` +
+    (s.avg_seconds ? `, averaging <b>${s.avg_seconds}s</b> per email.` : '.');
+
+  document.getElementById('mProcessed').textContent = s.processed || 0;
+  document.getElementById('mUrgent').textContent = String(s.urgent || 0).padStart(2, '0');
+  document.getElementById('mAction').textContent = String(s.action_needed || 0).padStart(2, '0');
+  document.getElementById('mSpeed').textContent = s.avg_seconds ? s.avg_seconds + 's' : '\u2014';
+
+  renderAttention(data.attention);
+  renderNoted(data.noted);
+  renderQuiet(data.quiet);
+
+  const parts = [];
+  if (s.total_seconds) parts.push(s.total_seconds + 's total');
+  if (s.model) parts.push(s.model);
+  if (accounts.length) parts.push(accounts.join(' + '));
+  document.getElementById('briefFoot').textContent = parts.join(' \u00b7 ');
+}
+
+function storeEmails(emails) {
+  (emails || []).forEach(e => { if (e.id) _emails[e.id] = e; });
+}
+
+function renderAttention(emails) {
+  const sec = document.getElementById('secAttention');
+  const list = document.getElementById('attentionList');
+  if (!emails || !emails.length) { sec.style.display = 'none'; return; }
+  storeEmails(emails);
+  sec.style.display = '';
+  list.innerHTML = emails.map(e => attentionCard(e)).join('');
+}
+
+function attentionCard(e) {
+  const icon = CATEGORY_ICONS[e.category] || 'info';
+  const lines = (e.summary || '').split('\n').filter(l => l.trim());
+  const firstLine = lines[0] || '';
+  return `
+    <div class="acard" id="email-row-${e.id}" onclick="tog(this)">
+      <div class="acard-flag"></div>
+      <div class="acard-top">
+        <span class="acard-meta">${esc(e.account)} &middot; ${e.date ? esc(e.date) + ' ' : ''}${esc(e.time)}</span>
+        <span class="material-symbols-outlined acard-icon">${icon}</span>
+      </div>
+      <h3 class="acard-title">${esc(e.sender_name)} &mdash; ${esc(e.subject)}</h3>
+      <p class="acard-body">${escBold(firstLine)}</p>
+      ${e.category ? `<span class="e-tag${e.tag_warm ? ' w' : ''}">${esc(e.category)}</span>` : ''}
+      <div class="e-detail">
+        <div class="e-detail-text">${fmtSummary(e.summary)}</div>
+        <div class="e-actions">
+          <button class="abtn dk" onclick="event.stopPropagation(); showReply(${e.id})">Draft Reply</button>
+          <button class="abtn danger" onclick="event.stopPropagation(); deleteEmail(${e.id}, this)">Delete</button>
+          <button class="abtn" onclick="event.stopPropagation(); this.closest('.acard').classList.remove('open')">Dismiss</button>
+        </div>
+        <div id="reply-${e.id}"></div>
+      </div>
+    </div>`;
+}
+
+function renderNoted(emails) {
+  const sec = document.getElementById('secNoted');
+  const list = document.getElementById('notedList');
+  if (!emails || !emails.length) { sec.style.display = 'none'; return; }
+  storeEmails(emails);
+  sec.style.display = '';
+  list.innerHTML = emails.map(e => notedRow(e)).join('');
+}
+
+function notedRow(e) {
+  return `
+    <div class="nrow" id="email-row-${e.id}">
+      <div class="nrow-who">${esc(e.sender_name)}</div>
+      <div class="nrow-body">
+        <div class="nrow-subj">${esc(e.subject)}</div>
+        <div class="nrow-sum">${fmtSummary(e.summary)}</div>
+        <div class="e-actions" style="margin-top:8px">
+          <button class="abtn dk" onclick="showReply(${e.id})">Draft Reply</button>
+          <button class="abtn danger" onclick="deleteEmail(${e.id}, this)">Delete</button>
+        </div>
+        <div id="reply-${e.id}"></div>
+      </div>
+      <span class="material-symbols-outlined nrow-icon">check_circle</span>
+    </div>`;
+}
+
+function renderQuiet(emails) {
+  const sec = document.getElementById('secQuiet');
+  const list = document.getElementById('quietList');
+  const toggle = document.getElementById('quietToggle');
+  if (!emails || !emails.length) { sec.style.display = 'none'; return; }
+  storeEmails(emails);
+  sec.style.display = '';
+  quietExpanded = false;
+  const total = emails.length;
+  const overflow = total > QUIET_PREVIEW;
+  toggle.style.display = overflow ? '' : 'none';
+  if (overflow) {
+    toggle.textContent = (total - QUIET_PREVIEW) + ' more';
+    toggle.onclick = () => {
+      quietExpanded = !quietExpanded;
+      renderLogRows(emails, quietExpanded);
+      toggle.textContent = quietExpanded ? 'Collapse' : (total - QUIET_PREVIEW) + ' more';
+    };
+  }
+  renderLogRows(emails, false);
+}
+
+function renderLogRows(emails, showAll) {
+  const list = document.getElementById('quietList');
+  const visible = showAll ? emails : emails.slice(0, QUIET_PREVIEW);
+  list.innerHTML = visible.map(e => `
+    <div class="lrow" id="email-row-${e.id}" onclick="tog(this)" style="flex-wrap:wrap;cursor:pointer">
+      <span class="lrow-time">${e.date ? esc(e.date) + ' ' : ''}${esc(e.time)}</span>
+      <span class="lrow-who">${esc(e.sender_name)}</span>
+      <span class="lrow-what">${esc(e.subject)}</span>
+      <span class="material-symbols-outlined lrow-arrow">arrow_forward_ios</span>
+      <div class="e-detail" style="width:100%;margin-left:64px">
+        <div class="e-detail-text">${fmtSummary(e.summary)}</div>
+        <div class="e-actions">
+          <button class="abtn dk" onclick="event.stopPropagation(); showReply(${e.id})">Draft Reply</button>
+          <button class="abtn danger" onclick="event.stopPropagation(); deleteEmail(${e.id}, this)">Delete</button>
+        </div>
+        <div id="reply-${e.id}"></div>
+      </div>
+    </div>`).join('');
+}
+
+function tog(el) { el.classList.toggle('open'); }
+
+// ===========================================================================
+// Archive
+// ===========================================================================
+let archiveLoaded = false;
+
+async function loadArchive() {
+  if (archiveLoaded) return;
+  const runs = await api('/api/archive');
+  archiveLoaded = true;
+  const container = document.getElementById('archiveList');
+  if (!runs.length) {
+    container.innerHTML = '<div class="empty"><div class="empty-title">No runs yet</div></div>';
+    return;
+  }
+  container.innerHTML = runs.map(r => `
+    <div class="a-row">
+      <span class="a-date">${esc(r.date)}</span>
+      <span class="a-name">${esc(r.label)}</span>
+      <span class="a-stats">${esc(r.stats)}</span>
+    </div>`).join('');
+}
+
+let searchTimer = null;
+document.getElementById('searchInput').addEventListener('input', e => {
+  clearTimeout(searchTimer);
+  const q = e.target.value.trim();
+  if (!q) {
+    document.getElementById('searchResults').style.display = 'none';
+    document.getElementById('archiveList').style.display = '';
+    return;
+  }
+  searchTimer = setTimeout(() => doSearch(q), 300);
+});
+
+async function doSearch(q) {
+  const results = await api('/api/search?q=' + encodeURIComponent(q));
+  const container = document.getElementById('searchResults');
+  document.getElementById('archiveList').style.display = 'none';
+  container.style.display = '';
+  if (!results.length) {
+    container.innerHTML = '<div class="empty"><div class="empty-title">No results</div></div>';
+    return;
+  }
+  container.innerHTML = results.map(e => `
+    <div class="sr-row">
+      <div class="sr-top">
+        <span class="sr-sender">${esc(e.sender_name)}</span>
+        <span class="sr-date">${esc(e.date)} ${esc(e.time)}</span>
+      </div>
+      <div class="sr-subj">${esc(e.subject)}</div>
+      <div class="sr-sum">${fmtSummary(e.summary)}</div>
+    </div>`).join('');
+}
+
+// ===========================================================================
+// Settings
+// ===========================================================================
+async function loadSettings() {
+  const [data, modelData] = await Promise.all([
+    api('/api/settings'),
+    api('/api/settings/models'),
+  ]);
+  const c = document.getElementById('settingsContent');
+  const accountRows = (data.accounts || []).map(a => `
+    <div class="s-row">
+      <div><div class="s-name">${esc(a.id)}</div><div class="s-sub">${esc(a.email)}</div></div>
+      <div class="tog${a.enabled ? ' on' : ''}" data-account="${esc(a.id)}" onclick="toggleAccount(this)"></div>
+    </div>`).join('');
+
+  const providerOptions = ['claude', 'groq', 'gemini', 'deepseek'].map(p =>
+    `<option value="${p}"${p === data.provider ? ' selected' : ''}>${p.charAt(0).toUpperCase() + p.slice(1)}</option>`
+  ).join('');
+
+  const modelOptions = (modelData.models || []).map(m =>
+    `<option value="${esc(m.id)}"${m.id === modelData.current ? ' selected' : ''}>${esc(m.label)}</option>`
+  ).join('');
+
+  const modelRow = modelData.models && modelData.models.length
+    ? `<select class="model-select" id="modelSelect" onchange="saveModel(this)">
+         ${modelOptions}
+       </select>
+       <span class="model-saved" id="modelSaved">Saved</span>`
+    : `<span class="s-val">${esc(data.model)}</span>`;
+
+  c.innerHTML = `
+    <div class="sblk">
+      <div class="sblk-title">Accounts</div>
+      ${accountRows || '<div class="s-row"><div class="s-name" style="color:var(--text-3)">No accounts configured</div></div>'}
+      <div style="margin-top:12px">
+        <button class="abtn" onclick="showAddAccount()">+ Add Account</button>
+      </div>
+      <div id="addAccountForm" style="display:none;margin-top:12px;padding:16px;background:var(--bg);border:1px solid var(--border-light)">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <input type="text" id="accNickname" placeholder="Nickname (e.g. Work)" style="font-family:'Work Sans',sans-serif;font-size:13px;padding:8px 12px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);outline:none">
+          <input type="email" id="accEmail" placeholder="Email address" style="font-family:'Work Sans',sans-serif;font-size:13px;padding:8px 12px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);outline:none">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+          <input type="text" id="accServer" placeholder="IMAP server (e.g. imap.gmail.com)" style="font-family:'Work Sans',sans-serif;font-size:13px;padding:8px 12px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);outline:none">
+          <input type="password" id="accPassword" placeholder="App password" style="font-family:'Work Sans',sans-serif;font-size:13px;padding:8px 12px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);outline:none">
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="abtn dk" onclick="saveAccount()">Save Account</button>
+          <button class="abtn" onclick="document.getElementById('addAccountForm').style.display='none'">Cancel</button>
+        </div>
+        <div id="accError" style="color:#c44;font-size:12px;margin-top:8px;display:none"></div>
+      </div>
+    </div>
+    <div class="sblk">
+      <div class="sblk-title">Model</div>
+      <div class="s-row">
+        <div><div class="s-name">Provider</div><div class="s-sub">LLM provider for email analysis</div></div>
+        <div style="display:flex;align-items:center">
+          <select class="model-select" id="providerSelect" onchange="saveProvider(this)">
+            ${providerOptions}
+          </select>
+          <span class="model-saved" id="providerSaved">Saved</span>
+        </div>
+      </div>
+      <div class="s-row">
+        <div><div class="s-name">Model</div><div class="s-sub">Applied on next triage run</div></div>
+        <div style="display:flex;align-items:center">${modelRow}</div>
+      </div>
+      <div class="s-row">
+        <div><div class="s-name">Fetch limit</div><div class="s-sub">Max emails per account per run</div></div>
+        <div style="display:flex;align-items:center">
+          <input type="number" id="fetchLimitInput" value="${data.fetch_limit}" min="1" max="500"
+            class="model-select" style="width:80px;text-align:center"
+            onchange="saveFetchLimit(this)">
+          <span class="model-saved" id="fetchLimitSaved">Saved</span>
+        </div>
+      </div>
+    </div>
+    <div class="sblk">
+      <div class="sblk-title">Options</div>
+      <div class="s-row">
+        <div><div class="s-name">Dry run</div><div class="s-sub">Analyse without modifying emails</div></div>
+        <div class="tog${data.dry_run ? ' on' : ''}" id="dryRunToggle" onclick="toggleDryRun(this)"></div>
+      </div>
+    </div>`;
+}
+
+function flashSaved(id) {
+  const badge = document.getElementById(id);
+  if (badge) {
+    badge.classList.add('show');
+    setTimeout(() => badge.classList.remove('show'), 2000);
+  }
+}
+
+async function saveModel(select) {
+  await api('/api/settings/model', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: select.value }),
+  });
+  flashSaved('modelSaved');
+}
+
+async function saveProvider(select) {
+  const res = await api('/api/settings/provider', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: select.value }),
+  });
+  flashSaved('providerSaved');
+  // Refresh model dropdown with new provider's models
+  const modelSelect = document.getElementById('modelSelect');
+  if (modelSelect && res.models) {
+    modelSelect.innerHTML = res.models.map(m =>
+      `<option value="${esc(m.id)}"${m.id === res.model ? ' selected' : ''}>${esc(m.label)}</option>`
+    ).join('');
+  }
+}
+
+async function toggleDryRun(el) {
+  const res = await api('/api/settings/dry-run', { method: 'POST' });
+  if (res.dry_run !== undefined) el.classList.toggle('on', res.dry_run);
+}
+
+async function saveFetchLimit(input) {
+  const val = parseInt(input.value, 10);
+  if (isNaN(val) || val < 1) { input.value = 50; return; }
+  await api('/api/settings/fetch-limit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fetch_limit: val }),
+  });
+  flashSaved('fetchLimitSaved');
+}
+
+function showAddAccount() {
+  const form = document.getElementById('addAccountForm');
+  form.style.display = form.style.display === 'none' ? '' : 'none';
+}
+
+async function saveAccount() {
+  const id = document.getElementById('accNickname').value.trim();
+  const email = document.getElementById('accEmail').value.trim();
+  const server = document.getElementById('accServer').value.trim();
+  const password = document.getElementById('accPassword').value.trim();
+  const errEl = document.getElementById('accError');
+
+  if (!id || !email || !server || !password) {
+    errEl.textContent = 'All fields are required.';
+    errEl.style.display = '';
+    return;
+  }
+
+  errEl.style.display = 'none';
+  try {
+    const res = await fetch('/api/accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, email, server, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Failed to add account.';
+      errEl.style.display = '';
+      return;
+    }
+    // Refresh settings view
+    loadSettings();
+  } catch (err) {
+    errEl.textContent = 'Network error.';
+    errEl.style.display = '';
+  }
+}
+
+async function toggleAccount(el) {
+  const id = el.dataset.account;
+  const res = await api('/api/settings/toggle-account/' + id, { method: 'POST' });
+  if (res.enabled !== undefined) el.classList.toggle('on', res.enabled);
+}
+
+// ===========================================================================
+// Triage
+// ===========================================================================
+async function runTriage() {
+  const btn = document.getElementById('btnRun');
+  const overlay = document.getElementById('triageOverlay');
+  const dot = document.getElementById('statusDot');
+  const spinner = document.getElementById('triageSpinner');
+  const text = document.getElementById('triageText');
+  const dismiss = document.getElementById('triageDismiss');
+
+  btn.style.opacity = '0.4';
+  btn.style.pointerEvents = 'none';
+  overlay.style.display = '';
+  spinner.style.display = '';
+  text.textContent = 'Processing emails\u2026';
+  dismiss.style.display = 'none';
+  dot.classList.add('running');
+
+  let result = null;
+  try {
+    const start = await api('/api/triage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    if (start.status === 'already_running') {
+      text.textContent = 'Triage is already running\u2026';
+    }
+    result = await pollTriage();
+  } catch (err) {
+    console.error(err);
+    result = { status: 'error', message: 'Network error' };
+  }
+
+  dot.classList.remove('running');
+  spinner.style.display = 'none';
+
+  // Show result feedback before dismissing
+  if (result && result.status === 'error') {
+    text.innerHTML = '<span style="color:#c44;font-weight:600">Triage failed</span><br>' + esc(result.message || 'Unknown error');
+    dismiss.style.display = '';
+  } else if (result) {
+    const p = result.processed || 0;
+    const e = result.errors || 0;
+    const parts = [`${p} email${p !== 1 ? 's' : ''} processed`];
+    if (e > 0) parts.push(`<span style="color:#c44">${e} error${e !== 1 ? 's' : ''}</span>`);
+    if (p === 0 && e === 0) {
+      text.innerHTML = 'No new emails found.';
+    } else {
+      text.innerHTML = parts.join(' \u00b7 ');
+    }
+    // Auto-dismiss after 2s on success, then refresh
+    await sleep(2000);
+    overlay.style.display = 'none';
+    btn.style.opacity = '';
+    btn.style.pointerEvents = '';
+    archiveLoaded = false;
+    await loadBriefing();
+    return;
+  }
+
+  // If error, wait for manual dismiss (handled by dismissTriage)
+}
+
+function dismissTriage() {
+  const overlay = document.getElementById('triageOverlay');
+  const btn = document.getElementById('btnRun');
+  overlay.style.display = 'none';
+  btn.style.opacity = '';
+  btn.style.pointerEvents = '';
+}
+
+async function pollTriage() {
+  while (true) {
+    await sleep(1500);
+    const s = await api('/api/triage/status');
+    if (!s.running) return s.result;
+  }
+}
+
+// ===========================================================================
+// Draft Reply & Delete
+// ===========================================================================
+function showReply(emailId) {
+  const el = document.getElementById('reply-' + emailId);
+  if (!el) return;
+  if (el.innerHTML) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <div class="reply-panel">
+      <div class="reply-row">
+        <input type="text" id="reply-input-${emailId}" placeholder="e.g. &ldquo;decline politely&rdquo; or &ldquo;confirm the meeting&rdquo;">
+        <button class="abtn dk" onclick="generateDraft(${emailId})">Generate</button>
+      </div>
+      <div id="reply-result-${emailId}" style="display:none"></div>
+    </div>`;
+  const input = document.getElementById('reply-input-' + emailId);
+  if (input) input.focus();
+}
+
+async function generateDraft(emailId) {
+  const input = document.getElementById('reply-input-' + emailId);
+  const resultEl = document.getElementById('reply-result-' + emailId);
+  const instruction = (input ? input.value : '').trim();
+  if (!instruction) { input && input.focus(); return; }
+
+  resultEl.className = 'reply-result';
+  resultEl.style.display = '';
+  resultEl.textContent = 'Generating\u2026';
+
+  try {
+    const data = await api('/api/draft-reply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email_id: emailId, instruction }),
+    });
+    if (data.error) {
+      resultEl.textContent = 'Error: ' + data.error;
+    } else {
+      resultEl.innerHTML = `<button class="copy-btn" onclick="copyDraft(${emailId})">Copy</button>` + esc(data.draft);
+    }
+  } catch (err) {
+    resultEl.textContent = 'Network error';
+  }
+}
+
+function copyDraft(emailId) {
+  const el = document.getElementById('reply-result-' + emailId);
+  if (!el) return;
+  // Get text only (skip the copy button text)
+  const btn = el.querySelector('.copy-btn');
+  const text = el.textContent.replace(btn ? btn.textContent : '', '').trim();
+  navigator.clipboard.writeText(text).then(() => {
+    if (btn) { btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = 'Copy', 1500); }
+  });
+}
+
+async function deleteEmail(emailId, btn) {
+  if (!confirm('Delete this email from history and IMAP?')) return;
+  try {
+    const data = await api('/api/delete/' + emailId, { method: 'DELETE' });
+    if (data.ok) {
+      const row = document.getElementById('email-row-' + emailId);
+      const card = btn.closest('.acard');
+      const target = card || row;
+      if (target) {
+        target.style.transition = 'opacity 0.3s, max-height 0.3s';
+        target.style.opacity = '0';
+        setTimeout(() => target.remove(), 300);
+      }
+      if (data.imap_warning) console.warn('IMAP:', data.imap_warning);
+    } else {
+      alert(data.error || 'Delete failed');
+    }
+  } catch (err) {
+    alert('Network error');
+  }
+}
+
+// ===========================================================================
+// Util
+// ===========================================================================
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  return res.json();
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function esc(s) {
+  if (s == null) return '';
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
+function fmtSummary(raw) {
+  // Convert LLM bullet-point summaries into HTML.
+  // Input:  "• **Invoice #1234** for €49.99\n• Attached: PDF receipt"
+  // Output: "<ul><li><strong>Invoice #1234</strong> for €49.99</li>...</ul>"
+  if (!raw) return '';
+  const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+  const hasBullets = lines.some(l => /^[•\-\*]\s/.test(l));
+  if (hasBullets) {
+    const items = lines.map(l => {
+      const text = l.replace(/^[•\-\*]\s*/, '');
+      return '<li>' + escBold(text) + '</li>';
+    }).join('');
+    return '<ul style="margin:0;padding-left:18px;list-style:disc">' + items + '</ul>';
+  }
+  // No bullets — just render bold and line breaks
+  return lines.map(l => escBold(l)).join('<br>');
+}
+
+function escBold(s) {
+  // Escape HTML, then convert **text** to <strong>text</strong>
+  const safe = esc(s);
+  return safe.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+}
+
+// ===========================================================================
+// Init
+// ===========================================================================
+loadBriefing();
+</script>
+</body>
+</html>

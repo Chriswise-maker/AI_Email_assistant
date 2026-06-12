@@ -3,12 +3,19 @@ import yaml
 from pathlib import Path
 from dotenv import load_dotenv, set_key
 
-load_dotenv(Path(__file__).parent.resolve() / ".env")
-
 PROJECT_ROOT = Path(__file__).parent.resolve()
 
+# Secrets live in a stable user-level location — never inside the repo or worktrees,
+# so they survive restarts, worktree switches, and git operations.
+_SECRETS_DIR = Path.home() / ".config" / "ai-email-assistant"
+ENV_PATH = _SECRETS_DIR / ".env"
+
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
-ENV_PATH = PROJECT_ROOT / ".env"
+
+# Ensure the secrets directory exists, then load
+_SECRETS_DIR.mkdir(parents=True, exist_ok=True)
+if ENV_PATH.exists():
+    load_dotenv(ENV_PATH)
 
 
 # Custom YAML representer: use block scalar (|) for multiline strings

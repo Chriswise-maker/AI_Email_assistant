@@ -7,6 +7,7 @@ This module handles:
 - Email fetching and cleaning
 - LLM API integration (via llm_providers.py)
 - Rule execution (flag, move, mark read)
+- Persisting results to SQLite (via database.py)
 """
 
 import sys
@@ -15,13 +16,14 @@ import time
 import traceback
 import datetime
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional
 from bs4 import BeautifulSoup
 from imap_tools import MailBox, AND
 from imap_tools import MailMessage
 
 from utils import load_config, get_account_password, get_env_value, PROJECT_ROOT
 from llm_providers import get_provider
+from database import create_run, finish_run, save_email
 
 # Canonical categories — must match config.yaml and system prompt
 CANONICAL_CATEGORIES = [
@@ -109,13 +111,15 @@ def process_emails(dry_run: bool = False) -> dict:
     Main entry point for email processing.
     
     Iterates through all enabled accounts, fetches unseen emails,
-    analyzes them with configured LLM, and applies configured rules.
+    analyzes them with configured LLM, applies configured rules,
+    and persists results to the SQLite database.
     """
     config = load_config()
     accounts = config.get("accounts", [])
     settings = config.get("settings", {})
     
     fetch_limit = settings.get("fetch_limit", 50)
+    max_age_days = settings.get("max_email_age_days", 30)
     provider_name = settings.get("provider", "groq")
     
     # Provider setup
@@ -135,6 +139,9 @@ def process_emails(dry_run: bool = False) -> dict:
         llm_provider = get_provider(provider_name, api_key, config)
     except ValueError as e:
         return {"status": "error", "message": str(e)}
+
+    # Create a triage run in the database
+    run_id = create_run(provider=provider_name, model=model_name)
 
     stats = {"processed": 0, "errors": 0, "skipped": 0, "details": []}
 
@@ -157,14 +164,34 @@ def process_emails(dry_run: bool = False) -> dict:
         try:
             # Persistent connection per account
             with MailBox(server).login(email_addr, password, initial_folder='INBOX') as mailbox:
-                # Fetch ALL UNSEEN messages from INBOX
+                # Fetch UNSEEN messages from INBOX, filtered by age
                 # mark_seen=False so failed emails stay unread for next run
-                emails = list(mailbox.fetch(AND(seen=False), mark_seen=False))
-                
+                date_cutoff = datetime.date.today() - datetime.timedelta(days=max_age_days)
+                emails = list(mailbox.fetch(
+                    AND(seen=False, date_gte=date_cutoff),
+                    mark_seen=False,
+                ))
+
+                # Sort newest-first so the fetch_limit keeps recent emails
+                # (IMAP returns oldest-first by default)
+                emails.sort(key=lambda m: m.date or datetime.datetime.min, reverse=True)
+
                 if fetch_limit:
                     emails = emails[:fetch_limit]
 
-                print(f"  Found {len(emails)} unseen emails in INBOX.")
+                total_fetched = len(emails)
+                print(f"  Found {total_fetched} unseen emails in INBOX (since {date_cutoff}).")
+                write_debug_log({
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "level": "INFO",
+                    "event": "imap_fetch",
+                    "account": account_id,
+                    "emails_found": total_fetched,
+                    "date_cutoff": str(date_cutoff),
+                    "fetch_limit": fetch_limit,
+                    "oldest_email": emails[-1].date.isoformat() if emails and emails[-1].date else None,
+                    "newest_email": emails[0].date.isoformat() if emails and emails[0].date else None,
+                })
 
                 max_body_chars = settings.get("max_body_chars", 3000)
 
@@ -226,7 +253,25 @@ def process_emails(dry_run: bool = False) -> dict:
                                 "action": action_name,
                                 "dry_run": dry_run,
                             })
-                            
+
+                            # Persist to SQLite
+                            email_date_str = ""
+                            if email.date:
+                                email_date_str = email.date.isoformat() if hasattr(email.date, 'isoformat') else str(email.date)
+                            save_email(
+                                run_id=run_id,
+                                uid=email.uid,
+                                account=account_id,
+                                sender=email.from_,
+                                subject=email.subject,
+                                category=category,
+                                priority=priority,
+                                summary=analysis.get("summary", ""),
+                                action=action_name,
+                                dry_run=dry_run,
+                                email_date=email_date_str,
+                            )
+
                         else:
                             print(f"  Failed to analyze: {email.subject}")
                             stats["skipped"] += 1
@@ -277,6 +322,9 @@ def process_emails(dry_run: bool = False) -> dict:
             stats["errors"] += 1
             stats["details"].append({"account": account_id, "error": str(e)})
 
+    # Finalize the run in the database
+    finish_run(run_id, stats["processed"], stats["errors"], stats["skipped"])
+
     return stats
 
 
@@ -322,4 +370,49 @@ def apply_rules(mailbox: MailBox, uid: str, action_name: str, dry_run: bool = Fa
         print(f"Error applying rule '{action_name}' to UID {uid}: {e}")
 
 
+def get_reply_draft(email_data: dict, instruction: str, config: dict) -> Optional[str]:
+    """Generate a reply draft for an email using the configured LLM provider."""
+    provider_name = config.get("settings", {}).get("provider", "groq")
+    provider_config = config.get("providers", {}).get(provider_name, {})
+    model_name = provider_config.get("model", "llama3-70b-8192")
+    api_key_env = provider_config.get("api_key_env", "GROQ_API_KEY")
+    api_key = get_env_value(api_key_env)
 
+    if not api_key:
+        return None
+
+    try:
+        llm = get_provider(provider_name, api_key, config)
+    except ValueError:
+        return None
+
+    email_context = (
+        f"From: {email_data.get('sender', '')}\n"
+        f"Subject: {email_data.get('subject', '')}\n"
+        f"Summary: {email_data.get('summary', '')}\n"
+        f"Category: {email_data.get('category', '')}"
+    )
+    return llm.draft_reply(email_context, instruction, model_name)
+
+
+def delete_email_from_imap(account_id: str, uid: str, config: dict) -> tuple[bool, str]:
+    """Delete a specific email from IMAP by UID. Returns (success, error_message)."""
+    accounts = config.get("accounts", [])
+    account = next((a for a in accounts if a.get("id") == account_id), None)
+
+    if not account:
+        return False, f"Account '{account_id}' not found in config"
+
+    email_addr = account.get("email")
+    server = account.get("server")
+    password = get_account_password(account_id)
+
+    if not password:
+        return False, f"No password found for account '{account_id}'"
+
+    try:
+        with MailBox(server).login(email_addr, password, initial_folder='INBOX') as mailbox:
+            mailbox.delete(uid)
+        return True, ""
+    except Exception as e:
+        return False, str(e)
