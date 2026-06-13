@@ -46,6 +46,8 @@ _CATEGORY_ALIASES = {
     "receipt": "Bills & Invoices",
     "order confirmation": "Orders & Shipping",
     "order": "Orders & Shipping",
+    "orders": "Orders & Shipping",
+    "invoices": "Bills & Invoices",
     "shipping": "Orders & Shipping",
     "shipping update": "Orders & Shipping",
     "delivery": "Orders & Shipping",
@@ -69,23 +71,21 @@ _CATEGORY_ALIASES = {
 }
 
 def normalize_category(raw_category: str) -> str:
-    """Map LLM-returned category to a canonical one."""
+    """Map an LLM-returned category to a canonical one.
+
+    Exact (case-insensitive) match first, then the alias table for known LLM
+    variations. Anything else falls through to "Other". We deliberately do NOT
+    substring-match: that mapped negations and fragments onto real categories
+    (e.g. "not spam" -> Spam -> mark_read hid legitimate mail; "p" -> Orders &
+    Shipping), whereas "Other" is the safe no_action bucket.
+    """
     if not raw_category:
         return "Other"
-    # Exact match first
+    key = raw_category.strip().lower()
     for canon in CANONICAL_CATEGORIES:
-        if raw_category.strip().lower() == canon.lower():
+        if key == canon.lower():
             return canon
-    # Alias lookup
-    alias = _CATEGORY_ALIASES.get(raw_category.strip().lower())
-    if alias:
-        return alias
-    # Substring match as last resort
-    lower = raw_category.strip().lower()
-    for canon in CANONICAL_CATEGORIES:
-        if canon.lower() in lower or lower in canon.lower():
-            return canon
-    return "Other"
+    return _CATEGORY_ALIASES.get(key, "Other")
 
 DEBUG_LOG_PATH = PROJECT_ROOT / "debug_logs.json"
 _MAX_DEBUG_ENTRIES = 500  # Cap so the file doesn't grow unbounded
@@ -192,7 +192,8 @@ def process_emails(dry_run: bool = False) -> dict:
                 # (IMAP returns oldest-first by default)
                 emails.sort(key=_email_sort_key, reverse=True)
 
-                if fetch_limit:
+                # None/absent = no limit; 0 = process none (don't treat 0 as falsy=unlimited)
+                if fetch_limit is not None:
                     emails = emails[:fetch_limit]
 
                 total_fetched = len(emails)
@@ -245,10 +246,36 @@ def process_emails(dry_run: bool = False) -> dict:
                             
                             # 3. Apply Rules (mark read, flag, etc)
                             # Passing mailbox and email UID to perform actions
-                            apply_rules(mailbox, email.uid, action_name, dry_run)
+                            rule_ok = apply_rules(mailbox, email.uid, action_name, dry_run)
 
-                            # Mark as seen only after successful analysis + rule application
-                            if not dry_run:
+                            if not rule_ok:
+                                # Rule action failed — leave the email unread so the
+                                # next run retries it (never lose emails), and record it.
+                                print(f"  Rule '{action_name}' failed for: {email.subject}")
+                                stats["errors"] += 1
+                                stats["details"].append({
+                                    "account": account_id,
+                                    "subject": email.subject,
+                                    "category": category,
+                                    "action": f"Rule failed: {action_name}",
+                                })
+                                write_debug_log({
+                                    "timestamp": datetime.datetime.now().isoformat(),
+                                    "level": "ERROR",
+                                    "account": account_id,
+                                    "subject": email.subject,
+                                    "sender": email.from_,
+                                    "category": category,
+                                    "priority": priority,
+                                    "action": f"Rule failed: {action_name}",
+                                    "dry_run": dry_run,
+                                })
+                                continue
+
+                            # Mark as seen only after a successful rule action.
+                            # Skip 'delete' — the message is already expunged, so
+                            # flagging \Seen on a dead UID would error spuriously.
+                            if not dry_run and action_name != "delete":
                                 mailbox.flag(email.uid, '\\Seen', True)
 
                             stats["processed"] += 1
@@ -362,13 +389,17 @@ def analyze_email_content(provider, email_content: str, system_prompt: str, mode
     return provider.analyze_email(email_content, system_prompt, model)
 
 
-def apply_rules(mailbox: MailBox, uid: str, action_name: str, dry_run: bool = False) -> None:
+def apply_rules(mailbox: MailBox, uid: str, action_name: str, dry_run: bool = False) -> bool:
     """
-    Execute action on the specific email UID using the open mailbox connection.
+    Execute the action for one email UID on the open mailbox connection.
+
+    Returns True if the action was applied (including no-ops and dry runs),
+    False if the IMAP action raised — so the caller can leave the email unread
+    for the next run instead of marking it processed.
     """
     if dry_run:
         print(f"[DRY RUN] Would perform '{action_name}' on UID {uid}")
-        return
+        return True
 
     try:
         if action_name == "mark_read":
@@ -381,9 +412,10 @@ def apply_rules(mailbox: MailBox, uid: str, action_name: str, dry_run: bool = Fa
             pass
         else:
             print(f"Unknown action: {action_name}")
-            
+        return True
     except Exception as e:
         print(f"Error applying rule '{action_name}' to UID {uid}: {e}")
+        return False
 
 
 def get_reply_draft(email_data: dict, instruction: str, config: dict) -> Optional[str]:
