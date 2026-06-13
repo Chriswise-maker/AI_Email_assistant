@@ -106,6 +106,37 @@ def write_debug_log(entry: dict) -> None:
         print(f"Error writing debug log: {e}")
 
 
+def _build_provider(config: dict):
+    """Resolve the active LLM provider from config and construct it.
+
+    Returns (provider, provider_name, model_name). Raises ValueError with a
+    user-facing message if the selected provider has no config block, is missing
+    its model/api_key_env, or its API key env var is unset — so a misconfigured
+    provider fails loudly instead of silently falling back to another provider's
+    model and credentials (e.g. selecting 'deepseek' with no providers.deepseek
+    entry would otherwise send GROQ_API_KEY to api.deepseek.com).
+    """
+    provider_name = config.get("settings", {}).get("provider", "groq")
+    provider_config = config.get("providers", {}).get(provider_name)
+    if not provider_config:
+        raise ValueError(
+            f"Provider '{provider_name}' is selected but has no "
+            f"'providers.{provider_name}' block in config.yaml"
+        )
+    model_name = provider_config.get("model")
+    api_key_env = provider_config.get("api_key_env")
+    if not model_name or not api_key_env:
+        raise ValueError(
+            f"Provider '{provider_name}' config is missing 'model' or 'api_key_env'"
+        )
+    api_key = get_env_value(api_key_env)
+    if not api_key:
+        raise ValueError(
+            f"Missing API key for provider '{provider_name}' (expected env var: {api_key_env})"
+        )
+    return get_provider(provider_name, api_key, config), provider_name, model_name
+
+
 def _email_sort_key(msg) -> datetime.datetime:
     """Timezone-safe sort key for IMAP messages.
 
@@ -136,23 +167,9 @@ def process_emails(dry_run: bool = False) -> dict:
     
     fetch_limit = settings.get("fetch_limit", 50)
     max_age_days = settings.get("max_email_age_days", 30)
-    provider_name = settings.get("provider", "groq")
-    
-    # Provider setup
-    provider_config = config.get("providers", {}).get(provider_name, {})
-    model_name = provider_config.get("model", "llama3-70b-8192")
-    api_key_env = provider_config.get("api_key_env", "GROQ_API_KEY")
-    
-    api_key = get_env_value(api_key_env)
-    
-    if not api_key:
-        return {
-            "status": "error", 
-            "message": f"Missing API key for provider '{provider_name}' (expected env var: {api_key_env})"
-        }
 
     try:
-        llm_provider = get_provider(provider_name, api_key, config)
+        llm_provider, provider_name, model_name = _build_provider(config)
     except ValueError as e:
         return {"status": "error", "message": str(e)}
 
@@ -420,17 +437,8 @@ def apply_rules(mailbox: MailBox, uid: str, action_name: str, dry_run: bool = Fa
 
 def get_reply_draft(email_data: dict, instruction: str, config: dict) -> Optional[str]:
     """Generate a reply draft for an email using the configured LLM provider."""
-    provider_name = config.get("settings", {}).get("provider", "groq")
-    provider_config = config.get("providers", {}).get(provider_name, {})
-    model_name = provider_config.get("model", "llama3-70b-8192")
-    api_key_env = provider_config.get("api_key_env", "GROQ_API_KEY")
-    api_key = get_env_value(api_key_env)
-
-    if not api_key:
-        return None
-
     try:
-        llm = get_provider(provider_name, api_key, config)
+        llm, _provider_name, model_name = _build_provider(config)
     except ValueError:
         return None
 
