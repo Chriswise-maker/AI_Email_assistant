@@ -17,7 +17,7 @@ from flask import Flask, jsonify, request, render_template
 
 from database import (
     get_latest_run, get_emails_for_run, get_all_runs,
-    search_emails, get_stats, get_email_by_id, delete_email,
+    search_emails, get_email_by_id, delete_email,
 )
 from backend import process_emails, get_reply_draft, delete_email_from_imap
 from utils import load_config, save_config, set_account_password, CONFIG_PATH

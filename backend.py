@@ -10,16 +10,13 @@ This module handles:
 - Persisting results to SQLite (via database.py)
 """
 
-import sys
 import json
 import time
 import traceback
 import datetime
-from pathlib import Path
 from typing import Optional
 from bs4 import BeautifulSoup
 from imap_tools import MailBox, AND
-from imap_tools import MailMessage
 
 from utils import load_config, get_account_password, get_env_value, PROJECT_ROOT
 from llm_providers import get_provider
@@ -96,8 +93,15 @@ def write_debug_log(entry: dict) -> None:
     try:
         logs = []
         if DEBUG_LOG_PATH.exists():
-            with open(DEBUG_LOG_PATH, "r", encoding="utf-8") as f:
-                logs = json.load(f)
+            try:
+                with open(DEBUG_LOG_PATH, "r", encoding="utf-8") as f:
+                    logs = json.load(f)
+                if not isinstance(logs, list):
+                    logs = []
+            except (json.JSONDecodeError, ValueError):
+                # Corrupt log (e.g. a partial write) — start fresh instead of
+                # dropping every future entry forever.
+                logs = []
         logs.insert(0, entry)
         logs = logs[:_MAX_DEBUG_ENTRIES]
         with open(DEBUG_LOG_PATH, "w", encoding="utf-8") as f:

@@ -40,8 +40,11 @@ def test_llm_connection():
         return False
     
     try:
-        provider = get_provider(provider_name, api_key)
-        
+        # Pass config so provider-specific settings (e.g. thinking_level) match
+        # what backend builds — otherwise the test exercises a different request
+        # shape than production.
+        provider = get_provider(provider_name, api_key, config)
+
         # Simple system prompt
         system_prompt = "You are a helpful assistant."
         
