@@ -8,6 +8,7 @@ Run with:  python3 server.py
 Opens at:  http://localhost:5001
 """
 
+import os
 import re
 import threading
 from datetime import datetime
@@ -19,7 +20,7 @@ from database import (
     search_emails, get_stats, get_email_by_id, delete_email,
 )
 from backend import process_emails, get_reply_draft, delete_email_from_imap
-from utils import load_config, save_config, set_account_password
+from utils import load_config, save_config, set_account_password, CONFIG_PATH
 
 app = Flask(__name__)
 
@@ -117,8 +118,27 @@ def _run_triage(dry_run: bool) -> None:
     _triage["result"] = None
     try:
         _triage["result"] = process_emails(dry_run=dry_run)
+    except Exception as e:
+        # Never leave result=None — the frontend would sit on the spinner forever.
+        _triage["result"] = {"status": "error", "message": f"Triage crashed: {e}"}
     finally:
         _triage["running"] = False
+
+
+def _mutate_config(mutator):
+    """Load config, apply mutator(config) in place, then save it.
+
+    Guards against utils.load_config()'s {}-on-error contract: if config.yaml
+    exists and is non-empty on disk but parsed to nothing, refuse to save —
+    otherwise a single settings write would overwrite accounts/providers/rules/
+    the protected system_prompt with only the mutated key. Returns (config, error).
+    """
+    config = load_config()
+    if not config and os.path.exists(CONFIG_PATH) and os.path.getsize(CONFIG_PATH) > 0:
+        return None, "config.yaml could not be read; refusing to overwrite it"
+    mutator(config)
+    save_config(config)
+    return config, None
 
 
 # ---------------------------------------------------------------------------
@@ -230,10 +250,16 @@ def api_search():
 def api_triage():
     if _triage["running"]:
         return jsonify({"status": "already_running"}), 409
-    dry_run = (request.json or {}).get("dry_run", False)
+    # The persisted Settings toggle is the source of truth; a body value (if sent)
+    # overrides it for one-off runs.
+    body = request.json or {}
+    if "dry_run" in body:
+        dry_run = bool(body["dry_run"])
+    else:
+        dry_run = load_config().get("settings", {}).get("dry_run", False)
     thread = threading.Thread(target=_run_triage, args=(dry_run,), daemon=True)
     thread.start()
-    return jsonify({"status": "started"})
+    return jsonify({"status": "started", "dry_run": dry_run})
 
 
 @app.route("/api/triage/status")
@@ -272,21 +298,24 @@ def api_add_account():
     if not all([acc_id, email, server, password]):
         return jsonify({"error": "All fields are required"}), 400
 
-    config = load_config()
-    # Check for duplicate ID
-    for a in config.get("accounts", []):
-        if a["id"].lower() == acc_id.lower():
-            return jsonify({"error": f"Account '{acc_id}' already exists"}), 409
+    def mut(config):
+        for a in config.get("accounts", []):
+            if a.get("id", "").lower() == acc_id.lower():
+                raise ValueError(f"Account '{acc_id}' already exists")
+        config.setdefault("accounts", []).append({
+            "id": acc_id,
+            "email": email,
+            "server": server,
+            "enabled": True,
+            "provider": "imap",
+        })
 
-    new_account = {
-        "id": acc_id,
-        "email": email,
-        "server": server,
-        "enabled": True,
-        "provider": "imap",
-    }
-    config.setdefault("accounts", []).append(new_account)
-    save_config(config)
+    try:
+        _, err = _mutate_config(mut)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 409
+    if err:
+        return jsonify({"error": err}), 500
     set_account_password(acc_id, password)
 
     return jsonify({"id": acc_id, "email": email, "enabled": True})
@@ -294,13 +323,23 @@ def api_add_account():
 
 @app.route("/api/settings/toggle-account/<account_id>", methods=["POST"])
 def api_toggle_account(account_id):
-    config = load_config()
-    for a in config.get("accounts", []):
-        if a["id"] == account_id:
-            a["enabled"] = not a.get("enabled", True)
-            save_config(config)
-            return jsonify({"id": account_id, "enabled": a["enabled"]})
-    return jsonify({"error": "Account not found"}), 404
+    new_state = {}
+
+    def mut(config):
+        for a in config.get("accounts", []):
+            if a.get("id") == account_id:
+                a["enabled"] = not a.get("enabled", True)
+                new_state["enabled"] = a["enabled"]
+                return
+        raise KeyError(account_id)
+
+    try:
+        _, err = _mutate_config(mut)
+    except KeyError:
+        return jsonify({"error": "Account not found"}), 404
+    if err:
+        return jsonify({"error": err}), 500
+    return jsonify({"id": account_id, "enabled": new_state["enabled"]})
 
 
 # Available models per provider — extend as needed
@@ -341,14 +380,14 @@ def api_set_model():
     model_id = body.get("model", "").strip()
     if not model_id:
         return jsonify({"error": "model required"}), 400
-    config = load_config()
-    provider_name = config.get("settings", {}).get("provider", "groq")
-    if "providers" not in config:
-        config["providers"] = {}
-    if provider_name not in config["providers"]:
-        config["providers"][provider_name] = {}
-    config["providers"][provider_name]["model"] = model_id
-    save_config(config)
+    provider_name = load_config().get("settings", {}).get("provider", "groq")
+
+    def mut(config):
+        config.setdefault("providers", {}).setdefault(provider_name, {})["model"] = model_id
+
+    _, err = _mutate_config(mut)
+    if err:
+        return jsonify({"error": err}), 500
     return jsonify({"provider": provider_name, "model": model_id})
 
 
@@ -358,9 +397,13 @@ def api_set_provider():
     new_provider = (body.get("provider") or "").strip().lower()
     if new_provider not in _PROVIDER_MODELS:
         return jsonify({"error": f"Unknown provider: {new_provider}"}), 400
-    config = load_config()
-    config.setdefault("settings", {})["provider"] = new_provider
-    save_config(config)
+
+    def mut(config):
+        config.setdefault("settings", {})["provider"] = new_provider
+
+    config, err = _mutate_config(mut)
+    if err:
+        return jsonify({"error": err}), 500
     # Return the new provider's current model + available models
     current_model = config.get("providers", {}).get(new_provider, {}).get("model", "")
     models = _PROVIDER_MODELS.get(new_provider, [])
@@ -369,11 +412,16 @@ def api_set_provider():
 
 @app.route("/api/settings/dry-run", methods=["POST"])
 def api_toggle_dry_run():
-    config = load_config()
-    current = config.get("settings", {}).get("dry_run", False)
-    config.setdefault("settings", {})["dry_run"] = not current
-    save_config(config)
-    return jsonify({"dry_run": not current})
+    current = load_config().get("settings", {}).get("dry_run", False)
+    new_value = not current
+
+    def mut(config):
+        config.setdefault("settings", {})["dry_run"] = new_value
+
+    _, err = _mutate_config(mut)
+    if err:
+        return jsonify({"error": err}), 500
+    return jsonify({"dry_run": new_value})
 
 
 @app.route("/api/settings/fetch-limit", methods=["POST"])
@@ -384,9 +432,13 @@ def api_set_fetch_limit():
         limit = max(1, min(limit, 500))
     except (ValueError, TypeError):
         return jsonify({"error": "Invalid fetch_limit"}), 400
-    config = load_config()
-    config.setdefault("settings", {})["fetch_limit"] = limit
-    save_config(config)
+
+    def mut(config):
+        config.setdefault("settings", {})["fetch_limit"] = limit
+
+    _, err = _mutate_config(mut)
+    if err:
+        return jsonify({"error": err}), 500
     return jsonify({"fetch_limit": limit})
 
 
@@ -426,17 +478,18 @@ def api_delete_email(email_id):
     if not row:
         return jsonify({"error": "Email not found"}), 404
 
-    imap_msg = ""
     uid = row.get("uid")
     account_id = row.get("account")
     if uid and account_id:
         config = load_config()
         ok, err = delete_email_from_imap(account_id, uid, config)
         if not ok:
-            imap_msg = err
+            # Keep the history row so the DB and mailbox don't diverge — the
+            # email is still in the inbox, so it must stay in history too.
+            return jsonify({"ok": False, "error": f"IMAP delete failed: {err}"}), 502
 
     delete_email(email_id)
-    return jsonify({"ok": True, "imap_warning": imap_msg})
+    return jsonify({"ok": True})
 
 
 # ---------------------------------------------------------------------------

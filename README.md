@@ -1,57 +1,59 @@
 # AI Email Assistant
 
-An intelligent email triage system powered by multiple LLM providers (Groq, DeepSeek, Gemini, Claude) that automatically categorizes, prioritizes, and summarizes incoming emails.
+An intelligent email triage system with a web UI, powered by multiple LLM providers (Groq, DeepSeek, Gemini, Claude). It fetches unread mail over IMAP, categorizes and prioritizes it with an LLM, applies rules, stores everything in SQLite, and presents the results as a "daily briefing" in your browser.
 
 ## Features
 
-- **Multi-Provider LLM Support**: Choose between Groq, DeepSeek, Google Gemini, or Anthropic Claude
-- **Automatic Email Categorization**: Intelligently sorts emails into categories (Security, Bills, Orders, Newsletters, Personal, Notifications, Spam, Other)
-- **Priority Scoring**: Assigns priority levels from 1-5 to help you focus on what matters
-- **Multilingual Summaries**: Preserves the original language of emails in summaries
-- **Rule-Based Actions**: Automatically flags, marks as read, or applies custom actions based on categories
-- **IMAP Support**: Works with any IMAP-compliant email provider
+- **Daily Briefing UI**: Flask + vanilla-JS single-page app — emails grouped into *Needs Attention* (priority ≥ 4), *Noted* (3), and *Quiet* (≤ 2)
+- **Multi-Provider LLM Support**: Groq, DeepSeek, Google Gemini, or Anthropic Claude — switchable from the Settings page
+- **Automatic Categorization**: Security, Bills & Invoices, Orders & Shipping, Newsletters, Personal, Notifications, Spam, Other
+- **Priority Scoring**: 1–5 priority per email
+- **Bullet-Point Summaries**: 2–4 scannable bullets with bolded key info (amounts, codes, deadlines), written in the email's original language
+- **Email History**: every processed email is stored in SQLite (`emails.db`) — searchable across runs from the UI
+- **Draft Replies**: generate an LLM reply draft for any email from the briefing
+- **Rule-Based Actions**: flag, mark read, delete, or no action per category
+- **Multi-Account IMAP**: any IMAP-compliant provider, multiple accounts
 
 ## Quick Start
 
 ### Prerequisites
 
 - Python 3.11+
-- An IMAP email account (Gmail, GMX, etc.)
-- API key for at least one LLM provider (Groq, DeepSeek, Gemini, or Claude)
+- An IMAP email account (GMX, Web.de, Gmail, …)
+- API key for at least one LLM provider
 
 ### Installation
 
-1. **Clone the repository**
+1. **Install dependencies**
    ```bash
    cd /path/to/AI_Email_assistant
-   ```
-
-2. **Install dependencies**
-   ```bash
    pip install -r requirements.txt
    ```
 
-3. **Configure environment variables**
-   
-   Create a `.env` file based on `.env.example`:
+2. **Configure secrets**
+
+   Secrets live in a user-level file **outside the repo**: `~/.config/ai-email-assistant/.env`
+   (this survives git operations and worktree switches).
+
    ```bash
-   cp .env.example .env
+   mkdir -p ~/.config/ai-email-assistant
+   cp .env.example ~/.config/ai-email-assistant/.env
    ```
-   
-   Add your credentials:
+
+   Then add your credentials:
    ```
    # LLM Provider API Keys (at least one required)
    GROQ_API_KEY=your_groq_key_here
    ANTHROPIC_API_KEY=your_claude_key_here
    GEMINI_API_KEY=your_gemini_key_here
-   
-   # Email Account Passwords
+
+   # Email Account Passwords — one per account id (PASSWORD_<ID>)
    PASSWORD_GMX=your_email_password_here
    ```
 
-4. **Configure email accounts**
-   
-   Edit `config.yaml` to add your email accounts:
+3. **Configure email accounts**
+
+   Edit `config.yaml` (or add accounts later from the Settings page):
    ```yaml
    accounts:
      - id: GMX
@@ -61,138 +63,85 @@ An intelligent email triage system powered by multiple LLM providers (Groq, Deep
        provider: imap
    ```
 
+4. **Run the app**
+   ```bash
+   python server.py
+   ```
+   Open **http://localhost:5001**, then hit the run button to start a triage.
+
+   > ⚠️ The server binds locally with Flask debug mode on — for personal/local use only.
+   > Do not expose the port to a network.
+
+## How It Works
+
+1. **Run**: the UI starts a triage in a background thread and polls for status
+2. **Fetch**: unread emails from the last `max_email_age_days` (default 30) are fetched per account, newest first, up to `fetch_limit`
+3. **Analyze**: each email body is cleaned and sent to the active LLM
+4. **Categorize**: the LLM returns `{category, priority, summary}` as JSON
+5. **Apply Rules**: configured action runs (flag / mark read / delete / no action)
+6. **Mark Processed**: emails are marked as read so they aren't re-processed
+7. **Persist**: results are upserted into SQLite (`emails.db`, unique per `uid` + account)
+8. **Brief**: the frontend renders the latest run as the daily briefing
+
 ## Configuration
 
-### LLM Providers
-
-Configure providers in `config.yaml`:
+Most day-to-day settings (provider, model, fetch limit, dry run, accounts) are editable from the **Settings page in the UI**. The full configuration lives in `config.yaml`:
 
 ```yaml
 providers:
   claude:
     api_key_env: ANTHROPIC_API_KEY
-    model: claude-sonnet-4-5
-    thinking_level: medium  # low, medium, high
-  
-  gemini:
-    api_key_env: GEMINI_API_KEY
-    model: gemini-3-flash-preview
-    thinking_level: low
-  
-  groq:
-    api_key_env: GROQ_API_KEY
-    model: llama-3.3-70b-versatile
+    model: claude-haiku-4-5-20251001
+    thinking_level: medium   # low | medium | high
 
 settings:
-  provider: claude  # Choose your active provider
-  dry_run: false    # Set true to test without applying actions
-  max_body_chars: 3000
-```
-
-### Categories and Rules
-
-Customize how emails are categorized and what actions to take:
-
-```yaml
-categories:
-  - Security
-  - Bills & Invoices
-  - Orders & Shipping
-  - Newsletters
-  - Personal
-  - Notifications
-  - Spam
-  - Other
+  provider: claude           # active provider
+  fetch_limit: 50            # max emails per account per run
+  max_email_age_days: 30     # ignore unread mail older than this
+  max_body_chars: 3000       # truncate bodies sent to the LLM
+  dry_run: false
 
 rules:
   Security: flag
-  Bills & Invoices: flag
-  Orders & Shipping: no_action
   Newsletters: mark_read
-  Personal: no_action
-  Notifications: no_action
+  Notifications: mark_read
   Spam: mark_read
-  Other: no_action
+  # everything else: no_action
 ```
 
-## How It Works
-
-1. **Connect**: The system connects to configured IMAP accounts
-2. **Fetch**: Retrieves all unread emails from the Inbox
-3. **Analyze**: Sends email content to the selected LLM for categorization
-4. **Categorize**: AI returns category, priority, and summary in JSON format
-5. **Apply Rules**: Executes configured actions (flag, mark read, etc.)
-6. **Mark Processed**: Marks emails as read to prevent re-processing
+> **Note**: the `system_prompt` in `config.yaml` is deliberately crafted
+> (bullet format, bilingual, bolded key info) — don't overwrite it.
 
 ## Troubleshooting
 
-### "Analysis Failed" Errors
+### "Analysis Failed" errors
+- **Quota exceeded**: switch provider in Settings or wait for the quota reset
+- **Invalid API key**: check `~/.config/ai-email-assistant/.env`
+- The failure reason is surfaced in the run result and `debug_logs.json`
 
-- **Quota Exceeded**: Switch to a different provider or wait for quota reset
-- **Invalid API Key**: Verify your API keys in `.env`
-- **Network Issues**: Check your internet connection
+### Emails being re-processed
+- Processed emails are marked *seen*; manually marking them unread re-queues them for the next run
 
-### Emails Being Re-Processed
-
-- The system marks emails as "seen" after processing
-- If you manually mark emails as unread, they will be re-processed
-
-### Gemini Rate Limits
-
-Gemini's free tier has strict quotas (20 requests/day for some models). Consider:
-- Switching to Claude or Groq (higher limits)
-- Upgrading your Gemini API plan
-- Processing emails in smaller batches
+### Gemini rate limits
+Free-tier Gemini has strict daily quotas — prefer Claude or Groq for regular use.
 
 ## File Structure
 
 ```
 AI_Email_assistant/
-├── backend.py             # Email processing logic
-├── llm_providers.py       # LLM provider implementations
-├── database.py            # SQLite persistence layer
-├── utils.py               # Helper functions
-├── config.yaml            # Main configuration
+├── server.py              # Flask API + async triage runner (entry point)
+├── templates/
+│   └── index.html         # Single-page frontend (no build step)
+├── backend.py             # process_emails() orchestrator, IMAP ops, rules
+├── llm_providers.py       # LLM provider implementations (analyze + draft reply)
+├── database.py            # SQLite schema, CRUD, search (emails.db)
+├── utils.py               # Config + secrets helpers
+├── config.yaml            # Accounts, providers, rules, system prompt
+├── ROADMAP.md             # Known bugs / planned work
 ├── requirements.txt       # Python dependencies
-├── .env                   # Environment variables (not tracked)
-└── .env.example           # Template for .env
-```
-
-## API Provider Information
-
-### Groq
-- **Fast inference** with open-source models
-- **Model**: `llama-3.3-70b-versatile`
-
-### Anthropic Claude
-- **High-quality reasoning** with extended thinking mode
-- **Models**: `claude-sonnet-4-5`, `claude-opus-4-6`
-
-### Google Gemini
-- **Models**: `gemini-3-flash-preview`, `gemini-3-pro-preview`
-- **Rate Limits**: Free tier has daily quotas
-
-### DeepSeek
-- **Cost-effective** Chinese LLM provider
-- **Model**: `deepseek-chat`
-
-## Advanced Configuration
-
-### Thinking Level (Gemini/Claude)
-
-The `thinking_level` parameter controls reasoning depth:
-- **low**: Fast, suitable for simple categorization
-- **medium**: Balanced performance and quality
-- **high**: Maximum reasoning, slower but more accurate
-
-### Dry Run Mode
-
-Enable `dry_run: true` in `config.yaml` to test email processing without actually modifying emails:
-```yaml
-settings:
-  dry_run: true
+└── .env.example           # Template for ~/.config/ai-email-assistant/.env
 ```
 
 ## License
 
-MIT License - feel free to use and modify as needed.
+MIT License — feel free to use and modify as needed.

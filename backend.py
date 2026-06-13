@@ -106,10 +106,26 @@ def write_debug_log(entry: dict) -> None:
         print(f"Error writing debug log: {e}")
 
 
+def _email_sort_key(msg) -> datetime.datetime:
+    """Timezone-safe sort key for IMAP messages.
+
+    imap_tools returns tz-aware datetimes for emails whose Date header carries a
+    timezone, but naive datetimes for headers that lack one or are unparseable
+    (1900-01-01). Sorting a mixed list raises TypeError, so coerce everything to
+    an aware UTC datetime (treating naive values as UTC).
+    """
+    d = getattr(msg, "date", None)
+    if d is None:
+        return datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
+    if d.tzinfo is None:
+        return d.replace(tzinfo=datetime.timezone.utc)
+    return d
+
+
 def process_emails(dry_run: bool = False) -> dict:
     """
     Main entry point for email processing.
-    
+
     Iterates through all enabled accounts, fetches unseen emails,
     analyzes them with configured LLM, applies configured rules,
     and persists results to the SQLite database.
@@ -174,7 +190,7 @@ def process_emails(dry_run: bool = False) -> dict:
 
                 # Sort newest-first so the fetch_limit keeps recent emails
                 # (IMAP returns oldest-first by default)
-                emails.sort(key=lambda m: m.date or datetime.datetime.min, reverse=True)
+                emails.sort(key=_email_sort_key, reverse=True)
 
                 if fetch_limit:
                     emails = emails[:fetch_limit]
