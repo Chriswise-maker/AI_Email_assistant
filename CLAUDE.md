@@ -33,14 +33,12 @@ server.py (Flask API)
         └─► utils.py      load_config, save_config, env/password helpers, PROJECT_ROOT
 ```
 
-**Note:** The old Streamlit UI (`app.py`) has been removed. The Flask + vanilla JS stack is the only UI.
-
 ### Key Files
 | File | Purpose | Lines |
 |---|---|---|
 | `server.py` | Flask API + page route, async triage runner via threading | ~450 |
 | `templates/index.html` | Single-page frontend (HTML + CSS + JS, no build step) | ~1620 |
-| `backend.py` | `process_emails()`, `get_reply_draft()`, `delete_email_from_imap()`, briefing append | ~495 |
+| `backend.py` | Email processing, rule application, reply drafts, and IMAP deletion | ~495 |
 | `llm_providers.py` | `LLMProvider` ABC with `analyze_email()` + `draft_reply()` per provider | ~255 |
 | `database.py` | SQLite schema + CRUD (emails, triage_runs), search, init-on-import | ~260 |
 | `utils.py` | YAML load/save with block-scalar representer, `.env` helpers, `PROJECT_ROOT` | ~90 |
@@ -50,10 +48,10 @@ server.py (Flask API)
 1. User clicks run (rail button or mobile FAB) → `POST /api/triage` starts a background thread
 2. Frontend polls `GET /api/triage/status` every 1.5s
 3. `process_emails()` loads config, calls `create_run()` → gets `run_id`
-4. For each enabled account: IMAP login, fetch `AND(seen=False, date_gte=<cutoff>)` with `mark_seen=False`
+4. For each enabled account: IMAP login, fetch `AND(seen=False)` with `mark_seen=False`
 5. Sort newest-first, slice to `fetch_limit`
-6. Per email: clean body → LLM `analyze_email()` (with one retry on None)
-7. LLM returns `{category, priority (1-5), summary}` — summary is 2-4 `•` bulleted lines, bolded key info, same language as email
+6. Per email: clean body → `build_analysis_content()` (From + Subject + Date + body) → LLM `analyze_email()` (with one retry on None)
+7. LLM returns `{category, priority (1-5), action, key_fact, deadline, summary}` — action ∈ none/reply/pay/verify/review/calendar; key_fact is the one decision-relevant fact (card lead); summary contains only info beyond the subject and may be empty; same language as email
 8. `normalize_category()` fuzzy-matches to canonical categories
 9. `apply_rules()` applies `flag` / `mark_read` / `delete` / `no_action`; then explicit `mailbox.flag(uid, '\\Seen', True)`
 10. `save_email()` upserts into SQLite (unique on `uid+account`)
@@ -118,5 +116,4 @@ python server.py
 - `_PROVIDER_MODELS` in `server.py` and `config.yaml` defaults have drifted (e.g., Gemini 2.0 vs 3 preview). Consolidate source of truth.
 - `_triage` is module-global dict — if Flask reloads mid-triage (debug mode), status is lost forever and frontend polls forever. Add timeout on `pollTriage()` in the JS.
 - Gemini `thinking_level` still hypothetical — not verified against current SDK.
-- `debug_logs.json` capped at 500 entries but no UI exposes it (old debug tab was on the Streamlit app).
-- `daily_briefing.md` file may still exist on disk from earlier runs — now unused; safe to delete.
+- `debug_logs.json` is capped at 500 entries but has no API or UI viewer.

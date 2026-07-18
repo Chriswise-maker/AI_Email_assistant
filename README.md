@@ -8,7 +8,7 @@ An intelligent email triage system with a web UI, powered by multiple LLM provid
 - **Multi-Provider LLM Support**: Groq, DeepSeek, Google Gemini, or Anthropic Claude — switchable from the Settings page
 - **Automatic Categorization**: Security, Bills & Invoices, Orders & Shipping, Newsletters, Personal, Notifications, Spam, Other
 - **Priority Scoring**: 1–5 priority per email
-- **Bullet-Point Summaries**: 2–4 scannable bullets with bolded key info (amounts, codes, deadlines), written in the email's original language
+- **Decision-First Summaries**: each email gets a one-line **key fact** (amount, deadline, code, login location) and an action tag (reply / pay / verify / …); bullet summaries only where they add information beyond the subject — thin emails stay blissfully quiet
 - **Email History**: every processed email is stored in SQLite (`emails.db`) — searchable across runs from the UI
 - **Draft Replies**: generate an LLM reply draft for any email from the briefing
 - **Rule-Based Actions**: flag, mark read, delete, or no action per category
@@ -75,9 +75,9 @@ An intelligent email triage system with a web UI, powered by multiple LLM provid
 ## How It Works
 
 1. **Run**: the UI starts a triage in a background thread and polls for status
-2. **Fetch**: unread emails from the last `max_email_age_days` (default 30) are fetched per account, newest first, up to `fetch_limit`
+2. **Fetch**: all unread emails are fetched per account, sorted newest first, then capped at `fetch_limit`
 3. **Analyze**: each email body is cleaned and sent to the active LLM
-4. **Categorize**: the LLM returns `{category, priority, summary}` as JSON
+4. **Categorize**: the LLM returns `{category, priority, action, key_fact, deadline, summary}` as JSON
 5. **Apply Rules**: configured action runs (flag / mark read / delete / no action)
 6. **Mark Processed**: emails are marked as read so they aren't re-processed
 7. **Persist**: results are upserted into SQLite (`emails.db`, unique per `uid` + account)
@@ -97,7 +97,6 @@ providers:
 settings:
   provider: claude           # active provider
   fetch_limit: 50            # max emails per account per run
-  max_email_age_days: 30     # ignore unread mail older than this
   max_body_chars: 3000       # truncate bodies sent to the LLM
   dry_run: false
 

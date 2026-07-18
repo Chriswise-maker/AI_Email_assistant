@@ -87,6 +87,22 @@ def normalize_category(raw_category: str) -> str:
 DEBUG_LOG_PATH = PROJECT_ROOT / "debug_logs.json"
 _MAX_DEBUG_ENTRIES = 500  # Cap so the file doesn't grow unbounded
 
+# Action kinds the LLM may assign to an email (what the user must do).
+_ALLOWED_ACTIONS = {"none", "reply", "pay", "verify", "review", "calendar"}
+
+
+def build_analysis_content(sender: str, subject: str, body: str, date: str = "") -> str:
+    """Compose the LLM input for one email.
+
+    Sender and subject are the strongest classification signals (e.g. judging
+    whether a security notice is legit) and let the model write summaries that
+    ADD to the subject instead of restating it — the user always sees the
+    subject in the UI. The Date header lets the model resolve relative
+    deadlines ("bis morgen", "until 20.07") to absolute dates.
+    """
+    date_line = f"Date: {date}\n" if date else ""
+    return f"From: {sender}\nSubject: {subject}\n{date_line}\nBody:\n{body}"
+
 
 def write_debug_log(entry: dict) -> None:
     """Append a structured entry to debug_logs.json (newest first, capped at _MAX_DEBUG_ENTRIES)."""
@@ -170,7 +186,6 @@ def process_emails(dry_run: bool = False) -> dict:
     settings = config.get("settings", {})
     
     fetch_limit = settings.get("fetch_limit", 50)
-    max_age_days = settings.get("max_email_age_days", 30)
 
     try:
         llm_provider, provider_name, model_name = _build_provider(config)
@@ -201,11 +216,11 @@ def process_emails(dry_run: bool = False) -> dict:
         try:
             # Persistent connection per account
             with MailBox(server).login(email_addr, password, initial_folder='INBOX') as mailbox:
-                # Fetch UNSEEN messages from INBOX, filtered by age
+                # Fetch every UNSEEN message from INBOX. The fetch limit is
+                # applied after sorting so the newest unread messages win.
                 # mark_seen=False so failed emails stay unread for next run
-                date_cutoff = datetime.date.today() - datetime.timedelta(days=max_age_days)
                 emails = list(mailbox.fetch(
-                    AND(seen=False, date_gte=date_cutoff),
+                    AND(seen=False),
                     mark_seen=False,
                 ))
 
@@ -218,14 +233,13 @@ def process_emails(dry_run: bool = False) -> dict:
                     emails = emails[:fetch_limit]
 
                 total_fetched = len(emails)
-                print(f"  Found {total_fetched} unseen emails in INBOX (since {date_cutoff}).")
+                print(f"  Found {total_fetched} unseen emails in INBOX.")
                 write_debug_log({
                     "timestamp": datetime.datetime.now().isoformat(),
                     "level": "INFO",
                     "event": "imap_fetch",
                     "account": account_id,
                     "emails_found": total_fetched,
-                    "date_cutoff": str(date_cutoff),
                     "fetch_limit": fetch_limit,
                     "oldest_email": emails[-1].date.isoformat() if emails and emails[-1].date else None,
                     "newest_email": emails[0].date.isoformat() if emails and emails[0].date else None,
@@ -235,13 +249,18 @@ def process_emails(dry_run: bool = False) -> dict:
 
                 for email in emails:
                     try:
-                        # 1. Clean Body
+                        # 1. Clean Body and compose the LLM input (sender +
+                        # subject included — see build_analysis_content)
                         cleaned_body = clean_email_body(email.html or email.text, max_chars=max_body_chars)
-                        
+                        content = build_analysis_content(
+                            email.from_, email.subject, cleaned_body,
+                            date=str(email.date) if email.date else "",
+                        )
+
                         # 2. Analyze (with single retry on failure)
                         analysis = analyze_email_content(
                             llm_provider,
-                            cleaned_body,
+                            content,
                             config.get("system_prompt"),
                             model_name
                         )
@@ -250,7 +269,7 @@ def process_emails(dry_run: bool = False) -> dict:
                             time.sleep(2)
                             analysis = analyze_email_content(
                                 llm_provider,
-                                cleaned_body,
+                                content,
                                 config.get("system_prompt"),
                                 model_name
                             )
@@ -258,12 +277,22 @@ def process_emails(dry_run: bool = False) -> dict:
                         if analysis:
                             category = normalize_category(analysis.get("category", "Other"))
                             action_name = config.get("rules", {}).get(category, "no_action")
-                            
+
                             # Safely get priority as int
                             try:
                                 priority = int(analysis.get("priority", 1))
                             except (ValueError, TypeError):
                                 priority = 1
+
+                            # Decision fields (schema v2) — all optional, so an
+                            # older prompt that doesn't produce them still works.
+                            action_needed = str(analysis.get("action") or "none").strip().lower()
+                            if action_needed not in _ALLOWED_ACTIONS:
+                                action_needed = "none"
+                            # key_fact is rendered pre-bolded by the UI; strip any
+                            # markdown the model leaks into it.
+                            key_fact = str(analysis.get("key_fact") or "").replace("**", "").strip()
+                            deadline = str(analysis.get("deadline") or "").strip()
                             
                             # 3. Apply Rules (mark read, flag, etc)
                             # Passing mailbox and email UID to perform actions
@@ -330,10 +359,13 @@ def process_emails(dry_run: bool = False) -> dict:
                                 subject=email.subject,
                                 category=category,
                                 priority=priority,
-                                summary=analysis.get("summary", ""),
+                                summary=str(analysis.get("summary") or "").strip(),
                                 action=action_name,
                                 dry_run=dry_run,
                                 email_date=email_date_str,
+                                action_needed=action_needed,
+                                key_fact=key_fact,
+                                deadline=deadline,
                             )
 
                         else:

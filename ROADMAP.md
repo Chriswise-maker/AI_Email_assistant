@@ -9,7 +9,7 @@
 
 **Shipped:**
 - Phase 1 stability fixes (all bugs closed)
-- Flask API + custom HTML/JS SPA (replaced Streamlit entirely — `app.py` is now dead code)
+- Flask API + custom HTML/JS SPA
 - SQLite email history (`emails.db`) with search + archive of past runs
 - Draft reply generation (LLM) with per-email instruction + clipboard copy
 - Delete email (removes from DB + IMAP)
@@ -68,15 +68,12 @@ All items closed. See git log for details. Summary of what was fixed:
   - One misclick → permanent data loss (DB row + IMAP message).
   - **Fix:** Trash table with 30-day TTL. Show "Undo" toast in UI for 10s after delete. Move IMAP delete to a "purge trash" job.
 
-- [x] **Delete `app.py` (Streamlit dead code)** — done. Flask + vanilla HTML/JS is the only UI.
-
 ### Minor
 
 - [ ] **Gemini `thinking_level` still hypothetical** — `llm_providers.py:143-149`. Verify against current SDK or remove the branch.
-- [x] **Retire `daily_briefing.md`** — done. `append_to_briefing()` removed from `backend.py`; SQLite is the only source of truth.
 - [x] **Clean up stale docs** — `walkthrough.md`, `task.md`, `implementation_plan.md`, empty `utils_backup.py` all removed.
 - [ ] **No pagination on archive** — `get_all_runs(limit=50)`. Fine for now, but emails.db grows unbounded.
-- [ ] **`debug_logs.json` has no UI** — old Streamlit debug tab is gone. Add `/api/debug-logs` + a Settings panel (or drop the file).
+- [ ] **`debug_logs.json` has no UI** — add `/api/debug-logs` + a Settings panel (or drop the file).
 
 ---
 
@@ -141,13 +138,13 @@ All items closed. See git log for details. Summary of what was fixed:
   - **New dep:** `rumps`
 
 - [ ] **API key entry in Settings UI** *(2 hours)*
-  - Regression from the Streamlit→Flask pivot — new UI has no way to enter keys
+  - The Settings UI has no way to enter keys
   - Per-provider password field in Settings → writes to `~/.config/ai-email-assistant/.env`
   - Show green check next to providers with keys set (don't reveal the key)
   - **Files:** `server.py` (`/api/settings/api-key`), `templates/index.html` (Settings panel)
 
 - [ ] **Fix Phase 1.5 regressions** *(half day)*
-  - Close out the critical items above (`debug=False`, `_triage` persistence, YAML fix, delete `app.py`)
+  - Close out the critical items above (`debug=False`, `_triage` persistence, YAML fix)
 
 ---
 
@@ -236,7 +233,7 @@ All items closed. See git log for details. Summary of what was fixed:
 | 2026-03-31 | APScheduler over cron | Keeps everything in-process, configurable from UI |
 | 2026-03-31 | Fix bugs before features | `mark_seen` bug could lose emails — can't build on broken foundation |
 | 2026-03-31 | No multi-user auth | Personal tool, complexity not justified |
-| 2026-04-10 | **Streamlit → Flask + vanilla HTML/JS** | Streamlit's re-run model makes real interactivity painful; custom frontend gives full design control and better perf. Accepted cost: lose auto-generated widgets, have to hand-build everything |
+| 2026-04-10 | **Adopt Flask + vanilla HTML/JS** | A custom frontend provides full interaction and design control with no frontend build step. Accepted cost: widgets and state management are hand-built. |
 | 2026-04-22 | **Prioritize scheduler + notifications + IMAP draft save** | These three unlock "ambient assistant" UX — without them, the app is a batch report on demand |
 | 2026-04-22 | **Re-categorize + few-shot corrections before more LLM features** | Trust is the binding constraint — users abandon assistants that misclassify without a fix loop |
 | 2026-04-22 | **Menu bar app via `rumps`** over Electron / webview wrappers | Minimal deps, native macOS feel, Python-only toolchain |

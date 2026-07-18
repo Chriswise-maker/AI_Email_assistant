@@ -41,6 +41,9 @@ def init_db() -> None:
             run_id TEXT NOT NULL,
             processed_at TEXT NOT NULL,
             email_date TEXT,
+            action_needed TEXT DEFAULT 'none',
+            key_fact TEXT DEFAULT '',
+            deadline TEXT DEFAULT '',
             dry_run INTEGER DEFAULT 0
         )
     """)
@@ -55,11 +58,17 @@ def init_db() -> None:
             model TEXT
         )
     """)
-    # Migrate existing DBs: add email_date column if missing
+    # Migrate existing DBs: add any columns introduced after the table was created
     cursor = conn.execute("PRAGMA table_info(emails)")
     columns = {row[1] for row in cursor.fetchall()}
-    if "email_date" not in columns:
-        conn.execute("ALTER TABLE emails ADD COLUMN email_date TEXT")
+    for col, decl in (
+        ("email_date", "TEXT"),
+        ("action_needed", "TEXT DEFAULT 'none'"),
+        ("key_fact", "TEXT DEFAULT ''"),
+        ("deadline", "TEXT DEFAULT ''"),
+    ):
+        if col not in columns:
+            conn.execute(f"ALTER TABLE emails ADD COLUMN {col} {decl}")
 
     # Deduplicate: unique constraint on (uid, account) so re-processing
     # the same email doesn't create duplicate rows.
@@ -121,15 +130,20 @@ def save_email(
     action: str,
     dry_run: bool = False,
     email_date: str = "",
+    action_needed: str = "none",
+    key_fact: str = "",
+    deadline: str = "",
 ) -> None:
     """Save a single processed email to the database."""
     conn = _get_connection()
     conn.execute(
         """INSERT OR REPLACE INTO emails
-           (uid, account, sender, subject, category, priority, summary, action, run_id, processed_at, email_date, dry_run)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (uid, account, sender, subject, category, priority, summary, action, run_id,
+            processed_at, email_date, action_needed, key_fact, deadline, dry_run)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (uid, account, sender, subject, category, priority, summary, action, run_id,
-         datetime.datetime.now().isoformat(), email_date, 1 if dry_run else 0),
+         datetime.datetime.now().isoformat(), email_date, action_needed, key_fact, deadline,
+         1 if dry_run else 0),
     )
     conn.commit()
     conn.close()

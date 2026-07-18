@@ -1082,10 +1082,22 @@ function renderAttention(emails) {
   list.innerHTML = emails.map(e => attentionCard(e)).join('');
 }
 
+const ACTION_LABELS = {
+  reply: 'Reply needed', pay: 'Payment due', verify: 'Verify',
+  review: 'Review', calendar: 'Date to note',
+};
+
+function actionChip(e) {
+  const a = e.action_needed;
+  if (!a || a === 'none') return '';
+  return `<span class="e-tag w">${esc(ACTION_LABELS[a] || a)}</span> `;
+}
+
 function attentionCard(e) {
   const icon = CATEGORY_ICONS[e.category] || 'info';
   const lines = (e.summary || '').split('\n').filter(l => l.trim());
-  const firstLine = lines[0] || '';
+  // Lead with the extracted key fact; fall back to the first summary bullet.
+  const lead = e.key_fact ? `**${e.key_fact}**` : (lines[0] || '');
   return `
     <div class="acard" id="email-row-${e.id}" onclick="tog(this)">
       <div class="acard-flag"></div>
@@ -1094,8 +1106,8 @@ function attentionCard(e) {
         <span class="material-symbols-outlined acard-icon">${icon}</span>
       </div>
       <h3 class="acard-title">${esc(e.sender_name)} &mdash; ${esc(e.subject)}</h3>
-      <p class="acard-body">${escBold(firstLine)}</p>
-      ${e.category ? `<span class="e-tag${e.tag_warm ? ' w' : ''}">${esc(e.category)}</span>` : ''}
+      ${lead ? `<p class="acard-body">${escBold(lead)}</p>` : ''}
+      ${actionChip(e)}${e.category ? `<span class="e-tag${e.tag_warm ? ' w' : ''}">${esc(e.category)}</span>` : ''}
       <div class="e-detail">
         <div class="e-detail-text">${fmtSummary(e.summary)}</div>
         <div class="e-actions">
@@ -1118,12 +1130,15 @@ function renderNoted(emails) {
 }
 
 function notedRow(e) {
+  const sum = e.key_fact
+    ? `${actionChip(e)}<strong>${esc(e.key_fact)}</strong>`
+    : fmtSummary(e.summary);
   return `
     <div class="nrow" id="email-row-${e.id}">
       <div class="nrow-who">${esc(e.sender_name)}</div>
       <div class="nrow-body">
         <div class="nrow-subj">${esc(e.subject)}</div>
-        <div class="nrow-sum">${fmtSummary(e.summary)}</div>
+        ${sum ? `<div class="nrow-sum">${sum}</div>` : ''}
         <div class="e-actions" style="margin-top:8px">
           <button class="abtn dk" onclick="showReply(${e.id})">Draft Reply</button>
           <button class="abtn danger" onclick="deleteEmail(${e.id}, this)">Delete</button>

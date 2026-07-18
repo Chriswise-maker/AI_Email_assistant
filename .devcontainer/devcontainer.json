@@ -1,0 +1,10 @@
+{
+    "name": "Secure Dev Environment",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "runArgs": [
+        "--cap-drop=ALL"
+    ],
+    "postCreateCommand": "echo 'Container ready. Run: npm install --ignore-scripts'"
+}
