@@ -1,28 +1,39 @@
 # Roadmap: AI Email Triage Assistant
 
-> Last reviewed: 2026-04-22
-> Status: v0.7 — Flask + HTML/JS frontend shipped; SQLite history + draft replies working. Not yet a daily driver: no auto-run, no notifications, drafts don't send.
+> Last reviewed: 2026-07-18
+> Status: v0.9 — Flask UI merged to main; two code-review passes + a summary-quality redesign shipped. Runs and renders cleanly. Still not a daily driver: it doesn't run without you opening it.
+
+---
+
+## ▶ Next Session Starts Here
+
+**The one thing missing that matters: the system doesn't run without the user.** It's a tool you visit, not a system that works before you show up. The next build closes that gap. Build **Tier 1 first, as one focused session:**
+
+1. **Scheduled triage** — runs itself (e.g. 07:00 / 17:00) via launchd or an in-process scheduler; server as a background service.
+2. **Emailed briefing** — email the digest to the user so it lands on their phone and is visible daily (judged more valuable than desktop notifications *because* it reaches the phone). One SMTP function.
+   - **Prerequisites (do as part of Tier 1):** `debug=True`→off + real WSGI server (`waitress`); fix the triage-start race (two rapid `POST /api/triage` start two concurrent runs).
+
+Then Tier 2 (Drafts-folder save, per-sender correction learning, one-click unsubscribe) and Tier 3 (chat-over-history, deadline "coming up" list, archive action). Detail lives in Phase 2/3 below. **Non-goal:** never build a mail client — identity is triage + briefing.
 
 ---
 
 ## Where We Are
 
-**Shipped:**
-- Phase 1 stability fixes (all bugs closed)
-- Flask API + custom HTML/JS SPA
-- SQLite email history (`emails.db`) with search + archive of past runs
+**Shipped (through commit `8a12716`, on `main` + GitHub):**
+- Flask API + custom HTML/JS SPA (`server.py`, `templates/index.html`) — replaced the old Streamlit `app.py`. Entry point: `python server.py` → http://localhost:5001
+- SQLite email history (`emails.db`) with search + archive of past runs; auto-migrating schema
+- **Schema v2 analysis** — LLM receives From/Subject/Date and returns `{category, priority, action, key_fact, deadline, summary}`. Cards lead with the extracted key fact + action chip; empty summaries allowed (thin emails stay quiet). Backed by a before/after benchmark on 15 real emails.
+- Two code-review passes fixed: working dry-run toggle, tz-sort crash, config-wipe guard, strict provider resolution (no credential leak), retry-safe `apply_rules`, safer `normalize_category`
 - Draft reply generation (LLM) with per-email instruction + clipboard copy
 - Delete email (removes from DB + IMAP)
 - Settings UI: provider, model, fetch-limit, dry-run, add-account, per-account enable toggle
-- Debug logging to `debug_logs.json` (capped at 500 entries)
+- Debug logging to `debug_logs.json` (capped at 500, self-healing on corruption)
 
-**Missing to be a daily driver:**
-- Auto-run (scheduler)
-- Notifications on urgent emails
-- Drafts go to IMAP Drafts folder / SMTP send (currently dead-end copy-paste)
-- Correction UI (re-categorize wrong assignments → learning loop)
-- VIP / sender rules
-- Keyboard shortcuts
+**Missing to be a daily driver** (priority order — see ▶ Next Session above):
+- Auto-run (scheduler) + emailed briefing ← **do first**
+- Drafts → IMAP Drafts folder (currently dead-end copy-paste)
+- Correction / per-sender learning loop
+- One-click unsubscribe (`List-Unsubscribe` header)
 
 ---
 
@@ -40,40 +51,47 @@ All items closed. See git log for details. Summary of what was fixed:
 
 ---
 
-## Phase 1.5 — Current Regressions & Tech Debt 🔧
+## Phase 1.5 — Known Issues & Tech Debt 🔧
 
-**Bugs discovered in review that need cleanup before more features land.**
+**Reconciled with two code-review passes (2026-07-18). Fixed items struck through; open items are what to clean up before / alongside more features.**
 
-### Critical
+### Fixed this session ✅
+- [x] Dry-run toggle was decorative (every "dry run" mutated the mailbox) — now reads `config.settings.dry_run`
+- [x] tz-aware/naive email-date sort crash aborted whole accounts — `_email_sort_key()` coerces to UTC
+- [x] Settings write could wipe the whole config (incl. `system_prompt`) on a parse error — `_mutate_config()` guard
+- [x] Misconfigured provider leaked `GROQ_API_KEY` to the wrong endpoint — `_build_provider()` errors instead
+- [x] `apply_rules` swallowed failures (email marked done anyway) — now leaves failed emails unread for retry
+- [x] `normalize_category` mapped "not spam"→Spam — substring fallback removed, unknown→Other
+- [x] `write_debug_log` dropped all entries forever after one corrupt write — self-heals now
+- [x] `system_prompt` now stored as a readable YAML **block scalar** (the old representer-not-firing issue is resolved for this write path)
+- [x] Stale docs / dead imports removed
 
-- [ ] **Flask `debug=True` in production path** — `server.py:448`
-  - Werkzeug debugger + auto-reload. RCE vector if the port is ever exposed via tunnel / VPN misconfig.
-  - **Fix:** Default `debug=False`. Optional `--debug` flag for dev. Switch to `waitress` (simpler) or `gunicorn` for serving.
+### Critical (still open)
 
-- [ ] **`_triage` module-global state** — `server.py:112`
-  - If Flask auto-reloads (debug mode) or crashes mid-triage, status is stuck and frontend polls forever.
-  - **Fix:** Persist status in DB (`triage_runs.state` column: `running`/`complete`/`failed`), add 10-minute timeout to `pollTriage()` in JS, surface a "Cancel" button.
+- [ ] **Flask `debug=True` in the serving path** — `server.py` `app.run(debug=True)`
+  - Werkzeug debugger + auto-reload. RCE vector if the port is ever exposed via tunnel / VPN. Also the reloader is what makes `_triage` status stick.
+  - **Fix:** default `debug=False`, optional `--debug` for dev, serve with `waitress`. **Do this as part of Tier 1.**
+
+- [ ] **Delete-by-UID has no UIDVALIDITY check + no trash** — `server.py` `api_delete_email`, `backend.py` `delete_email_from_imap`
+  - Riskiest remaining item. If a mailbox's UID space resets (UIDVALIDITY change), a stored UID points at a *different* message → the delete button removes the **wrong** email, irreversibly.
+  - **Fix:** store UIDVALIDITY per account and re-validate before delete; add a trash table + 10s undo toast; default delete to DB-only with an explicit "also delete from server".
+
+- [ ] **Triage-start race (TOCTOU)** — `server.py` `api_triage`
+  - Two rapid `POST /api/triage` both pass the `if _triage["running"]` check → two concurrent `process_emails` runs. Especially relevant once a scheduler also triggers runs.
+  - **Fix:** a lock/compare-and-set around the running flag (or persist run state in the DB). **Do this as part of Tier 1.**
 
 ### Important
 
-- [ ] **YAML representer not firing on `system_prompt`** — `utils.py:22-29`, `config.yaml:48`
-  - The block-scalar representer is registered but `system_prompt` still saves as escape-sequenced single-line quoted string. Likely `_yaml_dumper = yaml.SafeDumper` mutates the class globally but something else re-registers / the wrong Dumper is picked on some save paths.
-  - **Fix:** Define a subclass (`class _BlockDumper(yaml.SafeDumper): pass`) and attach the representer to that specifically. Add a round-trip test in `tests/test_config.py`.
-
-- [ ] **Model list drift** — `server.py:307` `_PROVIDER_MODELS` vs `config.yaml`
-  - Gemini: UI offers `gemini-2.0-flash` / `gemini-2.5-pro-preview`; config default is `gemini-3-flash-preview`. Two sources of truth.
-  - **Fix:** Move model list to `config.yaml` under `providers.<name>.available_models`, or to a single `models.py`. `server.py` reads from one place.
-
-- [ ] **Delete is irreversible** — `server.py:423`
-  - One misclick → permanent data loss (DB row + IMAP message).
-  - **Fix:** Trash table with 30-day TTL. Show "Undo" toast in UI for 10s after delete. Move IMAP delete to a "purge trash" job.
+- [ ] **`_triage` module-global state** — persist run status in the DB (`triage_runs.state`), add a poll timeout + Cancel in the JS.
+- [ ] **Efficiency (per-email waste)** — `process_emails` downloads full bodies of *all* unseen mail before truncating to `fetch_limit` (use `fetch(limit=…)`); `write_debug_log` rewrites the whole JSON file per email (buffer per run or use JSONL); `database.py` opens a fresh SQLite connection per email.
+- [ ] **`_PROVIDER_MODELS` drift** — `server.py` UI offers a `deepseek` option with no `config.yaml` entry (now errors clearly via `_build_provider`, so no longer dangerous, but the drift remains). Consolidate to one source.
+- [ ] **No `tests/` suite** — convert this session's benchmark + verification scripts (normalize-category table, config-wipe guard, tz-sort, DB migration) to pytest.
 
 ### Minor
 
-- [ ] **Gemini `thinking_level` still hypothetical** — `llm_providers.py:143-149`. Verify against current SDK or remove the branch.
-- [x] **Clean up stale docs** — `walkthrough.md`, `task.md`, `implementation_plan.md`, empty `utils_backup.py` all removed.
-- [ ] **No pagination on archive** — `get_all_runs(limit=50)`. Fine for now, but emails.db grows unbounded.
-- [ ] **`debug_logs.json` has no UI** — add `/api/debug-logs` + a Settings panel (or drop the file).
+- [ ] **Gemini SDK deprecated** — migrate `google-generativeai` → `google.genai`; verify/remove the hypothetical `thinking_level` branch.
+- [ ] **No pagination on archive** — `get_all_runs(limit=50)`; `emails.db` grows unbounded.
+- [ ] **`debug_logs.json` has no UI** — add a viewer or drop the file.
 
 ---
 
@@ -237,3 +255,7 @@ All items closed. See git log for details. Summary of what was fixed:
 | 2026-04-22 | **Prioritize scheduler + notifications + IMAP draft save** | These three unlock "ambient assistant" UX — without them, the app is a batch report on demand |
 | 2026-04-22 | **Re-categorize + few-shot corrections before more LLM features** | Trust is the binding constraint — users abandon assistants that misclassify without a fix loop |
 | 2026-04-22 | **Menu bar app via `rumps`** over Electron / webview wrappers | Minimal deps, native macOS feel, Python-only toolchain |
+| 2026-07-18 | **Merge `claude/jovial-satoshi` Flask UI to `main`; retire Streamlit** | The custom Flask + SPA is the real UI; committed the previously-untracked `server.py`/`templates/` so they couldn't be lost |
+| 2026-07-18 | **Schema v2: decision-brief, not re-summary** | Benchmark on 15 real emails showed old summaries restated the subject for ~half the inbox and padded thin mail; new schema extracts a `key_fact` + `action` + `deadline`, allows empty summaries, and feeds sender/subject to fix blind classification |
+| 2026-07-18 | **Prompt changes require: draft → benchmark on real mail → user approval → apply** | The `system_prompt` is a protected, load-bearing asset; changes must be measured, not guessed. This is the standing process. |
+| 2026-07-18 | **Emailed briefing over desktop notifications as the priority-1 delivery** | A digest emailed to the user reaches their phone and makes the system visible daily with zero new infra; notifications are Mac-only and easy to miss |
